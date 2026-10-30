@@ -2,16 +2,20 @@
   "name": "timecard-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "ボイスチャンネルの入退室で勤務時間を記録する Discord ボット",
-  "main": "src/index.js",
+  "description": "ボイスチャンネルにいる時間を勤務時間として記録する Discord ボット（Cloudflare Workers）",
+  "type": "module",
   "engines": {
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/index.js",
-    "test": "TZ=Asia/Tokyo node --disable-warning=ExperimentalWarning --test"
+    "test": "TZ=UTC node --disable-warning=ExperimentalWarning --test",
+    "setup": "node scripts/setup.js",
+    "secrets": "wrangler secret bulk secrets.json",
+    "db:migrate": "wrangler d1 migrations apply timecard --remote",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail"
   },
-  "dependencies": {
-    "discord.js": "^14.27.0"
+  "devDependencies": {
+    "wrangler": "^4.156.0"
   }
 }

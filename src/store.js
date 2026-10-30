@@ -1,58 +1,58 @@
-'use strict';
+// D1（SQLite）への保存。スキーマは migrations/ にある。
 
-const fs = require('node:fs');
-const path = require('node:path');
-const { DatabaseSync } = require('node:sqlite');
-
-// 打刻を SQLite に保存する
-class Store {
-  constructor(file) {
-    if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-    this.db = new DatabaseSync(file);
-    this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS punches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        ts INTEGER NOT NULL,
-        source TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS punches_user_ts ON punches (user_id, ts);
-    `);
-    this.insertStmt = this.db.prepare('INSERT INTO punches (user_id, type, ts, source) VALUES (?, ?, ?, ?)');
-    this.listStmt = this.db.prepare('SELECT id, user_id, type, ts, source FROM punches WHERE user_id = ? ORDER BY ts, id');
-    this.deleteStmt = this.db.prepare('DELETE FROM punches WHERE id = ?');
-    this.usersStmt = this.db.prepare('SELECT DISTINCT user_id FROM punches');
+export class Store {
+  constructor(db) {
+    this.db = db;
   }
 
-  // source: voice（VC の入退室）/ button / command / reconcile（起動時の補正）
-  add(userId, type, ts, source) {
-    const { lastInsertRowid } = this.insertStmt.run(userId, type, ts, source);
-    return { id: Number(lastInsertRowid), userId, type, ts, source };
+  // source: voice（VC の入退室）/ button / command（手動）/ auto（戻らない休憩・散歩の締め）
+  async add(userId, type, ts, source) {
+    const row = await this.db
+      .prepare('INSERT INTO punches (user_id, type, ts, source) VALUES (?, ?, ?, ?) RETURNING id')
+      .bind(userId, type, ts, source)
+      .first();
+    return { id: row.id, userId, type, ts, source };
   }
 
-  list(userId) {
-    return this.listStmt.all(userId).map((r) => ({ id: r.id, userId: r.user_id, type: r.type, ts: r.ts, source: r.source }));
+  async list(userId) {
+    const { results } = await this.db
+      .prepare('SELECT id, type, ts, source FROM punches WHERE user_id = ? ORDER BY ts, id')
+      .bind(userId)
+      .all();
+    return results.map((r) => ({ id: r.id, userId, type: r.type, ts: r.ts, source: r.source }));
   }
 
   // 最後に記録した打刻（時刻順ではなく記録順）
-  lastAdded(userId) {
-    const list = this.list(userId);
-    return list.reduce((latest, p) => (latest === null || p.id > latest.id ? p : latest), null);
+  async lastAdded(userId) {
+    const r = await this.db
+      .prepare('SELECT id, type, ts, source FROM punches WHERE user_id = ? ORDER BY id DESC LIMIT 1')
+      .bind(userId)
+      .first();
+    return r && { id: r.id, userId, type: r.type, ts: r.ts, source: r.source };
   }
 
-  remove(id) {
-    this.deleteStmt.run(id);
+  async remove(id) {
+    await this.db.prepare('DELETE FROM punches WHERE id = ?').bind(id).run();
   }
 
-  users() {
-    return this.usersStmt.all().map((r) => r.user_id);
+  async getPresence(userId) {
+    const r = await this.db
+      .prepare('SELECT in_voice, left_at, version FROM presence WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    return r && { inVoice: r.in_voice === 1, leftAt: r.left_at, version: r.version };
   }
 
-  close() {
-    this.db.close();
+  // 読んだときから誰も書き換えていなければ保存して true を返す
+  async savePresence(userId, { inVoice, leftAt }, expectedVersion) {
+    const stmt = expectedVersion === null
+      ? this.db
+        .prepare('INSERT INTO presence (user_id, in_voice, left_at, version) VALUES (?, ?, ?, 1) ON CONFLICT (user_id) DO NOTHING')
+        .bind(userId, inVoice ? 1 : 0, leftAt)
+      : this.db
+        .prepare('UPDATE presence SET in_voice = ?, left_at = ?, version = version + 1 WHERE user_id = ? AND version = ?')
+        .bind(inVoice ? 1 : 0, leftAt, userId, expectedVersion);
+    const { meta } = await stmt.run();
+    return meta.changes === 1;
   }
 }
-
-module.exports = { Store };

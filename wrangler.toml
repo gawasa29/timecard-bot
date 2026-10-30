@@ -1,0 +1,23 @@
+name = "timecard-bot"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+# 1 分ごとに、記録する人が勤務用 VC にいるかを確かめる
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timecard"
+# `npx wrangler d1 create timecard` で表示された database_id に置き換える
+database_id = "REPLACE_WITH_DATABASE_ID"
+migrations_dir = "migrations"
+
+# 公開してよい設定。トークンやサーバーの ID は secrets.json から `npm run secrets` で入れる
+[vars]
+# VC から切断しても勤務が続く扱いにする時間（分）
+GRACE_MINUTES = "5"
+# この時間を過ぎても戻らない休憩・散歩は、抜けた時点で退勤にする（分）
+MAX_AWAY_MINUTES = "180"
+# 日付の区切りと表示に使うタイムゾーン
+TIME_ZONE = "Asia/Tokyo"

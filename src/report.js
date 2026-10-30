@@ -1,6 +1,4 @@
-'use strict';
-
-const {
+import {
   TYPE_LABELS,
   STATUS_LABELS,
   WEEKDAYS,
@@ -13,7 +11,8 @@ const {
   shiftDay,
   shiftStats,
   currentState,
-} = require('./shifts');
+} from './shifts.js';
+import { localParts } from './time.js';
 
 function totals(shifts, now) {
   const sum = { days: new Set(), work: 0, break: 0, walk: 0 };
@@ -27,7 +26,7 @@ function totals(shifts, now) {
   return sum;
 }
 
-function statusLine(punches, now, disconnected) {
+export function statusLine(punches, now, disconnected) {
   const shifts = buildShifts(punches);
   const { status, shift, away } = currentState(shifts);
   if (status === 'working') {
@@ -38,7 +37,7 @@ function statusLine(punches, now, disconnected) {
   return shifts.some((s) => s.end !== null && shiftDay(s) === todayKey) ? '退勤済み' : '未出勤';
 }
 
-function todayReport(punches, now, disconnected = false) {
+export function todayReport(punches, now, disconnected = false) {
   const todayKey = dateKey(now);
   const shifts = buildShifts(punches).filter((s) => s.open || shiftDay(s) === todayKey);
   const lines = [`**${statusLine(punches, now, disconnected)}**`];
@@ -59,7 +58,7 @@ function monthShifts(punches, ym) {
   return buildShifts(punches).filter((s) => shiftDay(s).startsWith(ym));
 }
 
-function monthReport(punches, ym, now) {
+export function monthReport(punches, ym, now) {
   const shifts = monthShifts(punches, ym);
   const [y, m] = ym.split('-').map(Number);
   const t = totals(shifts, now);
@@ -81,7 +80,7 @@ function monthReport(punches, ym, now) {
   return body.length <= 1900 ? body : `${header}\n記録が多いため一覧は省略しました。\`/csv\` で書き出してください。`;
 }
 
-function monthCsv(punches, ym, now) {
+export function monthCsv(punches, ym, now) {
   const lines = [['日付', '曜日', '出勤', '退勤', '休憩(分)', '散歩(分)', '実働(分)', '実働(時間)', '備考'].join(',')];
   for (const s of monthShifts(punches, ym)) {
     if (s.start === null) continue;
@@ -89,7 +88,7 @@ function monthCsv(punches, ym, now) {
     const { breakMs, walkMs, workMs } = shiftStats(s, now);
     lines.push([
       shiftDay(s),
-      WEEKDAYS[new Date(s.start).getDay()],
+      WEEKDAYS[localParts(s.start).weekday],
       fmtTime(s.start),
       done ? fmtTimeFrom(s.end, s.start) : '',
       done ? Math.floor(breakMs / 60000) : '',
@@ -102,5 +101,3 @@ function monthCsv(punches, ym, now) {
   // Excel で文字化けしないよう BOM を付ける
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
-
-module.exports = { statusLine, todayReport, monthReport, monthCsv };

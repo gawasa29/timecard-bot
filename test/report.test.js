@@ -1,11 +1,12 @@
-'use strict';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { todayReport, monthReport, monthCsv } from '../src/report.js';
+import { parseMonth, parseDateTime, punchLogLine } from '../src/interactions.js';
+import { COMMANDS } from '../src/commands.js';
+import { dateKey, fmtTime } from '../src/shifts.js';
+import { fromLocal, setTimeZone } from '../src/time.js';
 
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { todayReport, monthReport, monthCsv } = require('../src/report');
-const { parseMonth, parseDateTime, commandData, punchLogLine } = require('../src/bot');
-
-const at = (d, h, m) => new Date(2026, 9, d, h, m).getTime();
+const at = (d, h, m) => fromLocal(2026, 10, d, h, m);
 let id = 0;
 const P = (type, d, h, m) => ({ id: ++id, userId: 'a', type, ts: at(d, h, m), source: 'voice' });
 
@@ -14,6 +15,19 @@ const october = [
   P('break_start', 29, 12, 0), P('break_end', 29, 13, 0), P('out', 29, 18, 0),
   P('in', 30, 22, 0), P('out', 31, 2, 30), // 日付をまたぐ勤務
 ];
+
+test('日時はプロセスのタイムゾーン（Workers では UTC）ではなく設定に従う', () => {
+  assert.equal(new Date(at(30, 9, 0)).toISOString(), '2026-10-30T00:00:00.000Z');
+  assert.equal(dateKey(Date.UTC(2026, 9, 30, 15, 30)), '2026-10-31');
+  assert.equal(fmtTime(Date.UTC(2026, 9, 30, 15, 30)), '00:30');
+  setTimeZone('America/New_York');
+  try {
+    assert.equal(new Date(fromLocal(2026, 11, 1, 9, 0)).toISOString(), '2026-11-01T14:00:00.000Z'); // 夏時間の終わった日
+    assert.equal(new Date(fromLocal(2026, 10, 31, 9, 0)).toISOString(), '2026-10-31T13:00:00.000Z');
+  } finally {
+    setTimeZone('Asia/Tokyo');
+  }
+});
 
 test('月の集計: 休憩と散歩を実働から引き、日付をまたぐ勤務は出勤日に数える', () => {
   const text = monthReport(october, '2026-10', at(31, 12, 0));
@@ -42,17 +56,24 @@ test('今日の状況', () => {
 
 test('入力の解釈', () => {
   const now = at(30, 12, 0);
-  assert.equal(parseMonth(null, now), '2026-10');
+  assert.equal(parseMonth(undefined, now), '2026-10');
   assert.equal(parseMonth('2026-9', now), '2026-09');
   assert.equal(parseMonth('2026-13', now), null);
-  assert.equal(parseDateTime(null, '9:05', now), at(30, 9, 5));
+  assert.equal(parseDateTime(undefined, '9:05', now), at(30, 9, 5));
   assert.equal(parseDateTime('２０２６－１０－２９', '０９：３０', now), at(29, 9, 30));
   assert.equal(parseDateTime('2026-02-30', '09:00', now), null);
-  assert.equal(parseDateTime(null, '25:00', now), null);
+  assert.equal(parseDateTime(undefined, '25:00', now), null);
 });
 
 test('コマンド定義とログ', () => {
-  assert.deepEqual(commandData.map((c) => c.name), ['panel', 'today', 'month', 'csv', 'add', 'undo']);
+  assert.deepEqual(COMMANDS.map((c) => c.name), ['panel', 'today', 'month', 'csv', 'add', 'addshift', 'undo']);
+  for (const c of COMMANDS) {
+    assert.match(c.name, /^[a-z]{1,32}$/);
+    assert.ok(c.description.length <= 100);
+    const options = c.options ?? [];
+    const firstOptional = options.findIndex((o) => !o.required);
+    if (firstOptional >= 0) assert.ok(options.slice(firstOptional).every((o) => !o.required), `${c.name}: 必須の引数は先に並べる`);
+  }
   assert.equal(punchLogLine(P('walk_start', 30, 10, 0), at(30, 11, 0)), '🚶 <@a> 散歩開始 10:00');
   assert.equal(punchLogLine({ ...P('in', 29, 9, 0), source: 'command' }, at(30, 11, 0)), '🟢 <@a> 出勤 2026-10-29 09:00（手動）');
 });
