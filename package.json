@@ -1,0 +1,21 @@
+{
+  "name": "timecard-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ボイスチャンネルにいる時間を勤務時間として記録する Discord ボット（Cloudflare Workers）",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "TZ=UTC node --disable-warning=ExperimentalWarning --test",
+    "setup": "node scripts/setup.js",
+    "secrets": "wrangler secret bulk secrets.json",
+    "db:migrate": "wrangler d1 migrations apply timecard --remote",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.156.0"
+  }
+}
