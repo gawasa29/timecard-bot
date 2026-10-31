@@ -10,6 +10,7 @@
 4. **人の操作が必要な箇所では止まる。** 「👤 ユーザーの操作」と書かれたステップは、代わりに進めず、頼んで返事を待つ。アカウント作成とログインも代行しない。
 5. **作り直さない。** すでにあるデータベースを消したり作り直したりしない。消すと打刻データが失われる。
 6. **書いていないことでエラーになったら、推測で進めない。** エラー文をそのままユーザーに伝えて止まる。
+7. **ユーザーに操作を頼むときは、開く URL をそのまま示す。** 「Developer Portal を開いて」だけで済ませず、クリックできるリンクと、画面のどこを押すかを一緒に伝える。ボットの招待 URL と `WORKER_URL` は、実際の値に置き換えて示す（どちらも秘密の値ではない）。
 
 ## 全体の流れ
 
@@ -214,7 +215,7 @@ console.log(`https://discord.com/oauth2/authorize?client_id=${s.DISCORD_APPLICAT
 
 `permissions=3072` は `View Channels` と `Send Messages` です。
 
-👤 ユーザーに URL を開いて招待してもらい、返事を待ちます。招待するには、そのサーバーの「サーバー管理」権限が必要です。
+👤 表示された URL をそのままユーザーに示し、開いて招待してもらって、返事を待ちます。招待するには、そのサーバーの「サーバー管理」権限が必要です。
 
 招待が終わったら、コマンドを登録します。
 
@@ -276,8 +277,8 @@ curl -sS -o /dev/null -w 'POST: %{http_code}\n' --max-time 20 -X POST -H 'Conten
 
 ユーザーに頼みます。
 
-1. Developer Portal でアプリを開き、**General Information** を表示する。
-2. **Interactions Endpoint URL** に `WORKER_URL` を入れて保存する。
+1. [Developer Portal](https://discord.com/developers/applications) でアプリを開き、左メニュー一番上の **General Information** を表示する。
+2. **Interactions Endpoint URL** に `WORKER_URL` の実際の値を入れて保存する。
 3. パネルを置きたいテキストチャンネルで `/panel` を実行する。
 
 保存できたか確かめます。
