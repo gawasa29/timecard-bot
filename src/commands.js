@@ -12,7 +12,7 @@ const monthOption = { type: STRING, name: 'month', description: 'YYYY-MM（省�
 export const COMMANDS = [
   {
     name: 'panel',
-    description: '休憩・散歩ボタンのパネルをこのチャンネルに置く',
+    description: '休憩・散歩・立ち時間のボタンのパネルをこのチャンネルに置く',
     default_member_permissions: MANAGE_GUILD,
   },
   { name: 'today', description: '今日の勤務状況を見る', options: [userOption] },

@@ -177,6 +177,61 @@ test('ボタンは今の状態で押せるものだけ受け付ける', async ()
   assert.equal((await t.press('nope')).ok, false);
 });
 
+test('立ち時間は実働から引かず、休憩に入ると終わる', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  assert.equal((await t.press('stand_end')).ok, false);
+  await t.advance(10);
+  assert.equal((await t.press('stand_start')).ok, true);
+  assert.match((await t.press('stand_start')).message, /すでに立っています/);
+  await t.advance(20);
+  assert.equal((await t.press('stand_end')).ok, true);
+  await t.advance(10);
+  await t.press('stand_start');
+  await t.advance(15);
+  assert.equal((await t.press('break_start')).ok, true);
+  assert.equal((await t.press('stand_start')).ok, false);
+  assert.equal((await t.press('stand_end')).ok, false);
+  await t.advance(30);
+  await t.press('break_end');
+  const [shift] = buildShifts(await t.store.list(A));
+  assert.equal(shift.error, false);
+  const stats = shiftStats(shift, t.now());
+  assert.equal(stats.standMs / MIN, 35);
+  assert.equal(stats.workMs / MIN, 55);
+  assert.equal((await t.tracker.state(A)).stand, null);
+});
+
+test('立ったまま VC を抜けると、抜けた時刻で立ち時間も退勤も終わる', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.press('stand_start');
+  await t.advance(30);
+  t.leave();
+  await t.advance(6);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'stand_start@09:00', 'out@09:31']);
+  const [shift] = buildShifts(await t.store.list(A));
+  assert.equal(shift.error, false);
+  assert.equal(shiftStats(shift, t.now()).standMs / MIN, 31);
+});
+
+test('猶予中の立ちボタンでも打刻の順番が崩れない', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.press('stand_start');
+  await t.advance(30);
+  t.leave();
+  await t.advance(2);
+  assert.equal((await t.press('stand_end')).ok, true);
+  assert.match((await t.press('stand_start')).message, /戻ってから/);
+  await t.advance(10);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'stand_start@09:00', 'stand_end@09:31', 'out@09:31']);
+  assert.equal(buildShifts(await t.store.list(A))[0].error, false);
+});
+
 test('初めての確認で VC にいれば出勤、いなければ何も記録しない', async () => {
   const t = setup();
   await t.tick();

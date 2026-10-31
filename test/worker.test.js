@@ -102,8 +102,10 @@ test('Worker 全体の流れ', async (t) => {
   // パネル
   const panel = await (await app.command('panel')).json();
   assert.equal(panel.data.flags, undefined);
-  assert.equal(panel.data.components.length, 3);
+  assert.equal(panel.data.components.length, 4);
   assert.deepEqual(panel.data.components[1].components.map((b) => b.custom_id), ['timecard:walk_start', 'timecard:walk_end']);
+  assert.deepEqual(panel.data.components[2].components.map((b) => b.custom_id), ['timecard:stand_start', 'timecard:stand_end']);
+  assert.deepEqual(panel.data.components[3].components.map((b) => b.custom_id), ['timecard:today', 'timecard:month']);
 
   // 散歩に出て VC を抜け、30 分後に戻る
   await minutes(60, app.cron);
@@ -143,6 +145,9 @@ test('Worker 全体の流れ', async (t) => {
   // 集計
   res = await data(await app.command('month'));
   assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:00 · 散歩 0:31/);
+  res = await data(await app.button('month'));
+  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:00 · 散歩 0:31/);
+  assert.equal(res.flags, 64);
   res = await data(await app.command('today', [{ name: 'user', type: 6, value: 'ub' }], 'ua', { users: { ub: { id: 'ub', username: 'bee' } } }));
   assert.match(res.content, /<@ub> の記録\n\*\*未出勤\*\*/);
 
