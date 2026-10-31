@@ -77,7 +77,7 @@ export class Tracker {
   // ---------- パネルのボタン ----------
   async press(userId, type, now) {
     const presence = await this.presence(userId);
-    const { status } = await this.state(userId);
+    const { status, stand } = await this.state(userId);
     const next = { inVoice: presence.inVoice, leftAt: presence.leftAt };
     let punch;
     let note = '';
@@ -96,6 +96,17 @@ export class Tracker {
         next.leftAt = now;
         note = `勤務用のボイスチャンネルに${Math.round(this.graceMs / 60000)}分以内に戻らないと、この時刻で退勤になります。`;
       }
+    } else if (type === 'stand_start') {
+      if (status === 'off') return fail('出勤していません。勤務用のボイスチャンネルに入ると出勤になります。');
+      if (status !== 'working') return fail(`今は${STATUS_LABELS[status]}です。`);
+      if (stand) return fail('すでに立っています。');
+      // 猶予が過ぎると抜けた時刻で退勤になるので、そのあとの時刻で始めない
+      if (presence.leftAt !== null) return fail('勤務用のボイスチャンネルに戻ってから押してください。');
+      punch = { type, ts: now, source: 'button' };
+    } else if (type === 'stand_end') {
+      if (!stand) return fail('立っていません。');
+      // VC を抜けた直後（猶予中）に押したなら、抜けた時刻で終える
+      punch = { type, ts: presence.leftAt ?? now, source: 'button' };
     } else {
       return fail('不明な操作です。');
     }
@@ -112,7 +123,7 @@ export class Tracker {
     const list = await this.store.list(userId);
     const candidate = [...list, ...additions.map((a, i) => ({ id: Number.MAX_SAFE_INTEGER - additions.length + i, userId, ...a }))];
     if (errorCount(candidate) > errorCount(list)) {
-      return fail('その時刻に入れると打刻の順番が合わなくなります（出勤で始め、休憩・散歩は開始と終了を対にする）。');
+      return fail('その時刻に入れると打刻の順番が合わなくなります（出勤で始め、休憩・散歩・立ちは開始と終了を対にする）。');
     }
     const punches = [];
     for (const a of additions) punches.push(await this.record(userId, a.type, a.ts, 'command'));
