@@ -10,7 +10,7 @@ crons = ["* * * * *"]
 binding = "DB"
 database_name = "timecard"
 # `npx wrangler d1 create timecard` で表示された database_id に置き換える
-database_id = "REPLACE_WITH_DATABASE_ID"
+database_id = "0f499483-0e4a-4fd1-903c-dcfc107f9a98"
 migrations_dir = "migrations"
 
 # 公開してよい設定。トークンやサーバーの ID は secrets.json から `npm run secrets` で入れる
