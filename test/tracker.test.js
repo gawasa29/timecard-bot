@@ -173,33 +173,8 @@ test('ボタンは今の状態で押せるものだけ受け付ける', async ()
   assert.equal((await t.press('walk_start')).ok, true);
   assert.equal((await t.press('break_start')).ok, false);
   assert.equal((await t.press('break_end')).ok, false);
-  assert.match((await t.press('out')).message, /抜けると退勤/);
+  assert.equal((await t.press('out')).ok, false);
   assert.equal((await t.press('nope')).ok, false);
-});
-
-test('VC の外からの退勤ボタン', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(60);
-  await t.press('walk_start');
-  t.leave();
-  await t.advance(30);
-  assert.equal((await t.press('out')).ok, true);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'walk_start@10:00', 'out@10:30']);
-  assert.deepEqual(await t.stats(), [{ work: 60, break: 0, walk: 30, error: false }]);
-});
-
-test('猶予中に退勤ボタンを押すと、抜けた時刻で退勤', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(60);
-  t.leave();
-  await t.advance(2);
-  await t.press('out');
-  await t.advance(10);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'out@10:01']);
 });
 
 test('初めての確認で VC にいれば出勤、いなければ何も記録しない', async () => {

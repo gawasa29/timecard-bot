@@ -96,11 +96,6 @@ export class Tracker {
         next.leftAt = now;
         note = `勤務用のボイスチャンネルに${Math.round(this.graceMs / 60000)}分以内に戻らないと、この時刻で退勤になります。`;
       }
-    } else if (type === 'out') {
-      if (status === 'off') return fail('出勤していません。');
-      if (presence.inVoice) return fail('勤務用のボイスチャンネルを抜けると退勤になります。');
-      punch = { type, ts: presence.leftAt ?? now, source: 'button' };
-      next.leftAt = null;
     } else {
       return fail('不明な操作です。');
     }

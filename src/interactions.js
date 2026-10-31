@@ -35,7 +35,7 @@ export function panelMessage() {
     components: [
       row(button('break_start', ButtonStyle.PRIMARY), button('break_end', ButtonStyle.SECONDARY)),
       row(button('walk_start', ButtonStyle.SUCCESS), button('walk_end', ButtonStyle.SECONDARY)),
-      row(button('today', ButtonStyle.SECONDARY, '今日の記録'), button('out', ButtonStyle.DANGER, '退勤（VCの外から）')),
+      row(button('today', ButtonStyle.SECONDARY, '今日の記録')),
     ],
     allowed_mentions: NO_MENTIONS,
   };
