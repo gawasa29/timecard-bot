@@ -6,7 +6,7 @@ import { statusLine, todayReport, monthReport, monthCsv } from './report.js';
 
 const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
 const ResponseType = { PONG: 1, MESSAGE: 4 };
-const ButtonStyle = { PRIMARY: 1, SECONDARY: 2, SUCCESS: 3, DANGER: 4 };
+const ButtonStyle = { PRIMARY: 1, SECONDARY: 2, SUCCESS: 3 };
 const EPHEMERAL = 1 << 6;
 const NO_MENTIONS = { parse: [] };
 const BUTTON_PREFIX = 'timecard:';
@@ -23,7 +23,7 @@ export function punchLogLine(punch, now = Date.now()) {
   return `${EMOJI[punch.type]} <@${punch.userId}> ${TYPE_LABELS[punch.type]} ${when}${note}`;
 }
 
-export function panelMessage() {
+function panelMessage() {
   const button = (type, style, label = TYPE_LABELS[type]) => ({ type: 2, style, label, custom_id: BUTTON_PREFIX + type });
   const row = (...components) => ({ type: 1, components });
   return {
@@ -37,7 +37,7 @@ export function panelMessage() {
       row(button('break_start', ButtonStyle.PRIMARY), button('break_end', ButtonStyle.SECONDARY)),
       row(button('walk_start', ButtonStyle.SUCCESS), button('walk_end', ButtonStyle.SECONDARY)),
       row(button('stand_start', ButtonStyle.PRIMARY), button('stand_end', ButtonStyle.SECONDARY)),
-      row(button('today', ButtonStyle.SECONDARY, '今日の記録'),button('month', ButtonStyle.SECONDARY, '今月の記録')),
+      row(button('today', ButtonStyle.SECONDARY, '今日の記録'), button('month', ButtonStyle.SECONDARY, '今月の記録')),
     ],
     allowed_mentions: NO_MENTIONS,
   };
