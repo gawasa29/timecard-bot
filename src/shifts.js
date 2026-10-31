@@ -23,7 +23,7 @@ const openStand = (shift) => {
 export const STATUS_LABELS = { off: '未出勤', working: '勤務中', break: '休憩中', walk: '散歩中' };
 export const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-export const pad = (n) => String(n).padStart(2, '0');
+const pad = (n) => String(n).padStart(2, '0');
 const byTs = (a, b) => a.ts - b.ts || a.id - b.id;
 
 export function dateKey(ts) {
