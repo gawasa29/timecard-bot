@@ -59,14 +59,18 @@ function monthShifts(punches, ym) {
   return buildShifts(punches).filter((s) => shiftDay(s).startsWith(ym));
 }
 
-export function monthReport(punches, ym, now) {
-  const shifts = monthShifts(punches, ym);
+function monthHeader(ym) {
   const [y, m] = ym.split('-').map(Number);
-  const t = totals(shifts, now);
-  const header = `**${y}年${m}月**　出勤 ${t.days.size}日 · 実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 立ち ${fmtDuration(t.stand)}`;
-  if (shifts.length === 0) return `${header}\nこの月の記録はありません。`;
+  return `**${y}年${m}月**`;
+}
 
-  const rows = shifts.map((s) => {
+function summaryLine(shifts, now) {
+  const t = totals(shifts, now);
+  return `出勤 ${t.days.size}日 · 実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 立ち ${fmtDuration(t.stand)}`;
+}
+
+function dayRows(shifts, now) {
+  return shifts.map((s) => {
     const first = s.punches[0].ts;
     const { workMs, breakMs, standMs } = shiftStats(s, now);
     const start = s.start !== null ? fmtTime(s.start) : '--:--';
@@ -76,9 +80,50 @@ export function monthReport(punches, ym, now) {
       : `休${fmtDuration(breakMs)} 実${fmtDuration(workMs)} 立${fmtDuration(standMs)}${s.error ? ' 要確認' : ''}`;
     return `${fmtDateLabel(first)} ${start}-${end.padEnd(5)} ${detail}`;
   });
-  const body = `${header}\n\`\`\`\n${rows.join('\n')}\n\`\`\``;
+}
+
+export function monthReport(punches, ym, now) {
+  const shifts = monthShifts(punches, ym);
+  const header = `${monthHeader(ym)}　${summaryLine(shifts, now)}`;
+  if (shifts.length === 0) return `${header}\nこの月の記録はありません。`;
+
+  const body = `${header}\n\`\`\`\n${dayRows(shifts, now).join('\n')}\n\`\`\``;
   // Discord のメッセージは 2000 文字まで
   return body.length <= 1900 ? body : `${header}\n記録が多いため一覧は省略しました。\`/csv\` で書き出してください。`;
+}
+
+// entries: [{ userId, punches }]。全員分を 1 つのメッセージにまとめる
+export function monthReportAll(entries, ym, now) {
+  const header = monthHeader(ym);
+  const sections = entries.map(({ userId, punches }) => {
+    const shifts = monthShifts(punches, ym);
+    return { userId, shifts, rows: shifts.length > 0 ? dayRows(shifts, now) : [] };
+  });
+  const withRows = sections.filter((s) => s.rows.length > 0);
+  if (withRows.length === 0) return `${header}\nこの月の記録はありません。`;
+
+  const summaries = sections.map(({ userId, shifts }) => `<@${userId}> ${summaryLine(shifts, now)}`);
+  const fixed = `${header}\n${summaries.join('\n')}\n`;
+  // 一覧に使える文字数を人数で分ける。入りきらなければ、それぞれの途中まで出す
+  const perUser = Math.floor((1900 - fixed.length - 60) / withRows.length);
+  let truncated = false;
+  const blocks = withRows.map(({ userId, rows }) => {
+    const head = `<@${userId}>\n\`\`\`\n`;
+    const tail = '\n```';
+    let used = head.length + tail.length;
+    const kept = [];
+    for (const row of rows) {
+      if (used + row.length + 1 > perUser) {
+        truncated = true;
+        break;
+      }
+      kept.push(row);
+      used += row.length + 1;
+    }
+    return `${head}${kept.join('\n')}${kept.length < rows.length ? '\n…' : ''}${tail}`;
+  });
+  const note = truncated ? '\n記録が多いため、一覧は途中までです。`/csv` で人ごとに書き出せます。' : '';
+  return `${fixed}\n${blocks.join('\n\n')}${note}`;
 }
 
 export function monthCsv(punches, ym, now) {

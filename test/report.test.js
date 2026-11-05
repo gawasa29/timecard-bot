@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { todayReport, monthReport, monthCsv } from '../src/report.js';
+import { todayReport, monthReport, monthReportAll, monthCsv } from '../src/report.js';
 import { parseMonth, parseDateTime, punchLogLine } from '../src/interactions.js';
 import { COMMANDS } from '../src/commands.js';
 import { dateKey, fmtTime } from '../src/shifts.js';
@@ -9,6 +9,7 @@ import { fromLocal, setTimeZone } from '../src/time.js';
 const at = (d, h, m) => fromLocal(2026, 10, d, h, m);
 let id = 0;
 const P = (type, d, h, m) => ({ id: ++id, userId: 'a', type, ts: at(d, h, m), source: 'voice' });
+const PU = (userId, type, d, h, m) => ({ ...P(type, d, h, m), userId });
 
 const october = [
   P('in', 29, 9, 0), P('break_start', 29, 10, 0), P('break_end', 29, 10, 20),
@@ -35,6 +36,38 @@ test('月の集計: 休憩を実働から引き、日付をまたぐ勤務は出
   assert.match(text, /10\/29\(木\) 09:00-18:00 休1:20 実7:40 立0:00/);
   assert.match(text, /10\/30\(金\) 22:00-翌02:30 休0:00 実4:30 立0:00/);
   assert.match(monthReport(october, '2026-09', at(31, 12, 0)), /記録はありません/);
+});
+
+test('全員分の月の記録', () => {
+  const entries = [
+    { userId: 'a', punches: october },
+    { userId: 'b', punches: [PU('b', 'in', 28, 10, 0), PU('b', 'out', 28, 12, 0)] },
+  ];
+  const text = monthReportAll(entries, '2026-10', at(31, 12, 0));
+  assert.match(text, /^\*\*2026年10月\*\*\n<@a> 出勤 2日 · 実働 \*\*12:10\*\* · 休憩 1:20 · 立ち 0:00\n<@b> 出勤 1日 · 実働 \*\*2:00\*\* · 休憩 0:00 · 立ち 0:00/);
+  assert.match(text, /<@a>\n```\n10\/29\(木\) 09:00-18:00 休1:20 実7:40 立0:00/);
+  assert.match(text, /<@b>\n```\n10\/28\(水\) 10:00-12:00 休0:00 実2:00 立0:00/);
+});
+
+test('全員分の月の記録がないとき', () => {
+  const text = monthReportAll([{ userId: 'a', punches: [] }, { userId: 'b', punches: [] }], '2026-09', at(31, 12, 0));
+  assert.equal(text, '**2026年9月**\nこの月の記録はありません。');
+});
+
+test('全員分が長いときは、それぞれの途中まで出して CSV を案内する', () => {
+  const many = (userId) => Array.from({ length: 25 }, (_, i) => {
+    const d = i + 1;
+    return [PU(userId, 'in', d, 9, 0), PU(userId, 'out', d, 18, 0)];
+  }).flat();
+  const text = monthReportAll([
+    { userId: 'a', punches: many('a') },
+    { userId: 'b', punches: many('b') },
+  ], '2026-10', at(31, 12, 0));
+  assert.ok(text.length <= 1900);
+  assert.match(text, /<@a>/);
+  assert.match(text, /<@b>/);
+  assert.match(text, /…/);
+  assert.match(text, /`\/csv`/);
 });
 
 test('CSV', () => {

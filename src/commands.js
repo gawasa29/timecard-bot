@@ -16,7 +16,7 @@ export const COMMANDS = [
     default_member_permissions: MANAGE_GUILD,
   },
   { name: 'today', description: '今日の勤務状況を見る', options: [userOption] },
-  { name: 'month', description: '月の勤務時間を見る', options: [monthOption, userOption] },
+  { name: 'month', description: '月の勤務時間を見る（省略すると全員分）', options: [monthOption, userOption] },
   { name: 'csv', description: '月の勤務記録を CSV で受け取る', options: [monthOption, userOption] },
   {
     name: 'add',

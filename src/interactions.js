@@ -2,7 +2,7 @@
 
 import { TYPE_LABELS, dateKey, fmtTime, fmtTimeFrom } from './shifts.js';
 import { fromLocal } from './time.js';
-import { statusLine, todayReport, monthReport, monthCsv } from './report.js';
+import { statusLine, todayReport, monthReport, monthReportAll, monthCsv } from './report.js';
 
 const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
 const ResponseType = { PONG: 1, MESSAGE: 4 };
@@ -32,6 +32,7 @@ function panelMessage() {
       '勤務用のボイスチャンネルに入ると出勤、抜けると退勤になります（反映まで1分ほどかかります）。休憩・立ち時間はこのボタンで記録してください。',
       '休憩中はボイスチャンネルを抜けても退勤になりません。戻ると自動で終わります。',
       '立ち時間は実働に含みます。休憩に入ると立ち時間も終わります。',
+      '「今日の記録」は自分、「今月の記録」は全員分を表示します。',
     ].join('\n'),
     components: [
       row(button('break_start', ButtonStyle.PRIMARY), button('break_end', ButtonStyle.SECONDARY)),
@@ -68,6 +69,14 @@ function options(interaction) {
   return Object.fromEntries((interaction.data.options ?? []).map((o) => [o.name, o.value]));
 }
 
+// 設定された全員分の打刻を読む。firstUserId を先頭にする
+async function monthEntries(app, firstUserId) {
+  const ids = [...app.config.userIds];
+  const index = ids.indexOf(firstUserId);
+  if (index > 0) ids.unshift(...ids.splice(index, 1));
+  return Promise.all(ids.map(async (userId) => ({ userId, punches: await app.store.list(userId) })));
+}
+
 // ---------- 処理 ----------
 async function handleButton(interaction, user, app) {
   const { tracker, store, config } = app;
@@ -84,7 +93,7 @@ async function handleButton(interaction, user, app) {
   const disconnected = async () => (await tracker.presence(user.id)).leftAt !== null;
 
   if (type === 'today') return reply(todayReport(await store.list(user.id), now, await disconnected()));
-  if (type === 'month') return reply(monthReport(await store.list(user.id), parseMonth(null, now), now));
+  if (type === 'month') return reply(monthReportAll(await monthEntries(app, user.id), parseMonth(null, now), now));
 
   const result = await tracker.press(user.id, type, now);
   if (!result.ok) return reply(result.message);
@@ -116,6 +125,7 @@ async function handleCommand(interaction, user, app) {
     case 'month': {
       const ym = parseMonth(opts.month, now);
       if (!ym) return reply('月は 2026-10 のように入力してください。');
+      if (!opts.user) return reply(monthReportAll(await monthEntries(app, user.id), ym, now));
       return reply(who + monthReport(await store.list(targetId), ym, now));
     }
 

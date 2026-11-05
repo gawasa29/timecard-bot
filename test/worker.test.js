@@ -142,12 +142,20 @@ test('Worker 全体の流れ', async (t) => {
   await minutes(6, app.cron);
   assert.equal(app.discord.messages.at(-1), '🔴 <@ua> 退勤 11:43');
 
-  // 集計
+  // 集計（user を省略すると全員分。押した人を先頭にする）
   res = await data(await app.command('month'));
-  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:31 · 立ち 0:00/);
+  assert.match(res.content, /<@ua> 出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:31 · 立ち 0:00/);
+  assert.match(res.content, /<@ub> 出勤 0日 · 実働 \*\*0:00\*\* · 休憩 0:00 · 立ち 0:00/);
+  assert.ok(res.content.indexOf('<@ua>') < res.content.indexOf('<@ub>'));
   res = await data(await app.button('month'));
-  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:31 · 立ち 0:00/);
+  assert.match(res.content, /<@ua> 出勤 1日/);
+  assert.match(res.content, /<@ub> 出勤 0日/);
   assert.equal(res.flags, 64);
+  res = await data(await app.button('month', 'ub'));
+  assert.ok(res.content.indexOf('<@ub>') < res.content.indexOf('<@ua>'));
+  res = await data(await app.command('month', [{ name: 'user', type: 6, value: 'ub' }], 'ua', { users: { ub: { id: 'ub', username: 'bee' } } }));
+  assert.match(res.content, /^<@ub> の記録\n/);
+  assert.doesNotMatch(res.content, /<@ua>/);
   res = await data(await app.command('today', [{ name: 'user', type: 6, value: 'ub' }], 'ua', { users: { ub: { id: 'ub', username: 'bee' } } }));
   assert.match(res.content, /<@ub> の記録\n\*\*未出勤\*\*/);
 
@@ -170,7 +178,7 @@ test('Worker 全体の流れ', async (t) => {
   assert.match(res.content, /2026-10-28 23:00 に休憩開始を追加しました/);
   res = await data(await app.command('add', [opt('type', 'break_end'), opt('time', '23:30'), opt('date', '2026-10-28')]));
   res = await data(await app.command('month'));
-  assert.match(res.content, /出勤 2日 · 実働 \*\*6:12\*\* · 休憩 1:01 · 立ち 0:00/);
+  assert.match(res.content, /<@ua> 出勤 2日 · 実働 \*\*6:12\*\* · 休憩 1:01 · 立ち 0:00/);
   res = await data(await app.command('undo'));
   assert.match(res.content, /休憩終了 2026-10-28 23:30 を取り消しました/);
   assert.match(app.discord.messages.at(-1), /取り消しました/);
