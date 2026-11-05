@@ -6,13 +6,13 @@ import { statusLine, todayReport, monthReport, monthCsv } from './report.js';
 
 const InteractionType = { PING: 1, COMMAND: 2, COMPONENT: 3 };
 const ResponseType = { PONG: 1, MESSAGE: 4 };
-const ButtonStyle = { PRIMARY: 1, SECONDARY: 2, SUCCESS: 3 };
+const ButtonStyle = { PRIMARY: 1, SECONDARY: 2 };
 const EPHEMERAL = 1 << 6;
 const NO_MENTIONS = { parse: [] };
 const BUTTON_PREFIX = 'timecard:';
 
-const EMOJI = { in: '🟢', out: '🔴', break_start: '☕', break_end: '↩️', walk_start: '🚶', walk_end: '↩️', stand_start: '🧍', stand_end: '🪑' };
-const SOURCE_NOTES = { command: '手動', auto: '休憩・散歩から戻らなかったため' };
+const EMOJI = { in: '🟢', out: '🔴', break_start: '☕', break_end: '↩️', stand_start: '🧍', stand_end: '🪑' };
+const SOURCE_NOTES = { command: '手動', auto: '休憩から戻らなかったため' };
 
 const reply = (content, extra = {}) =>
   Response.json({ type: ResponseType.MESSAGE, data: { content, flags: EPHEMERAL, allowed_mentions: NO_MENTIONS, ...extra } });
@@ -29,13 +29,12 @@ function panelMessage() {
   return {
     content: [
       '**タイムカード**',
-      '勤務用のボイスチャンネルに入ると出勤、抜けると退勤になります（反映まで1分ほどかかります）。休憩・散歩・立ち時間はこのボタンで記録してください。',
-      '休憩・散歩中はボイスチャンネルを抜けても退勤になりません。戻ると自動で終わります。',
-      '立ち時間は実働に含みます。休憩・散歩に入ると立ち時間も終わります。',
+      '勤務用のボイスチャンネルに入ると出勤、抜けると退勤になります（反映まで1分ほどかかります）。休憩・立ち時間はこのボタンで記録してください。',
+      '休憩中はボイスチャンネルを抜けても退勤になりません。戻ると自動で終わります。',
+      '立ち時間は実働に含みます。休憩に入ると立ち時間も終わります。',
     ].join('\n'),
     components: [
       row(button('break_start', ButtonStyle.PRIMARY), button('break_end', ButtonStyle.SECONDARY)),
-      row(button('walk_start', ButtonStyle.SUCCESS), button('walk_end', ButtonStyle.SECONDARY)),
       row(button('stand_start', ButtonStyle.PRIMARY), button('stand_end', ButtonStyle.SECONDARY)),
       row(button('today', ButtonStyle.SECONDARY, '今日の記録'), button('month', ButtonStyle.SECONDARY, '今月の記録')),
     ],

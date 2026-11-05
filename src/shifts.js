@@ -6,21 +6,11 @@ export const TYPE_LABELS = {
   in: '出勤',
   break_start: '休憩開始',
   break_end: '休憩終了',
-  walk_start: '散歩開始',
-  walk_end: '散歩終了',
   stand_start: '立ち開始',
   stand_end: '立ち終了',
   out: '退勤',
 };
-// 休憩と散歩は勤務中に抜ける時間で、どちらも実働から引く
-const AWAY_START = { break_start: 'break', walk_start: 'walk' };
-const AWAY_END = { break_end: 'break', walk_end: 'walk' };
-// 立ち時間はスタンディングデスクで働く時間で、実働に含む。休憩・散歩・退勤でも終わる
-const openStand = (shift) => {
-  const last = shift.stands.at(-1);
-  return last !== undefined && last.end === null ? last : null;
-};
-export const STATUS_LABELS = { off: '未出勤', working: '勤務中', break: '休憩中', walk: '散歩中' };
+export const STATUS_LABELS = { off: '未出勤', working: '勤務中', break: '休憩中' };
 export const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -51,12 +41,18 @@ export function fmtDateLabel(ts) {
   return `${pad(p.month)}/${pad(p.day)}(${WEEKDAYS[p.weekday]})`;
 }
 
+// 立ち時間の打刻を閉じていないものがあれば返す
+const openStand = (shift) => {
+  const last = shift.stands.at(-1);
+  return last !== undefined && last.end === null ? last : null;
+};
+
 // 出勤から退勤までを 1 つの勤務とし、勤務日は出勤した日とする。
 // 順番がおかしい打刻を含む勤務は error を立てる。
 export function buildShifts(list) {
   const shifts = [];
   let cur = null;
-  const orphan = (p) => shifts.push({ punches: [p], start: null, end: null, aways: [], stands: [], open: false, error: true });
+  const orphan = (p) => shifts.push({ punches: [p], start: null, end: null, breaks: [], stands: [], open: false, error: true });
 
   for (const p of [...list].sort(byTs)) {
     if (p.type === 'in') {
@@ -64,7 +60,7 @@ export function buildShifts(list) {
         cur.error = true;
         shifts.push(cur);
       }
-      cur = { punches: [p], start: p.ts, end: null, aways: [], stands: [], open: false, error: false };
+      cur = { punches: [p], start: p.ts, end: null, breaks: [], stands: [], open: false, error: false };
       continue;
     }
     if (!cur) {
@@ -72,26 +68,29 @@ export function buildShifts(list) {
       continue;
     }
     cur.punches.push(p);
-    const last = cur.aways.at(-1);
-    const away = last !== undefined && last.end === null ? last : null;
+    const last = cur.breaks.at(-1);
+    const onBreak = last !== undefined && last.end === null ? last : null;
     const stand = openStand(cur);
     if (stand && p.type !== 'stand_start') stand.end = p.ts;
     if (p.type === 'stand_start') {
-      if (away || stand) cur.error = true;
+      if (onBreak || stand) cur.error = true;
       else cur.stands.push({ start: p.ts, end: null });
     } else if (p.type === 'stand_end') {
       if (!stand) cur.error = true;
-    } else if (Object.hasOwn(AWAY_START, p.type)) {
-      if (away) cur.error = true;
-      else cur.aways.push({ kind: AWAY_START[p.type], start: p.ts, end: null });
-    } else if (Object.hasOwn(AWAY_END, p.type)) {
-      if (away && away.kind === AWAY_END[p.type]) away.end = p.ts;
+    } else if (p.type === 'break_start') {
+      if (onBreak) cur.error = true;
+      else cur.breaks.push({ start: p.ts, end: null });
+    } else if (p.type === 'break_end') {
+      if (onBreak) onBreak.end = p.ts;
       else cur.error = true;
-    } else {
-      if (away) away.end = p.ts;
+    } else if (p.type === 'out') {
+      // 休憩を終えずに退勤したら、退勤の時刻で休憩も終える
+      if (onBreak) onBreak.end = p.ts;
       cur.end = p.ts;
       shifts.push(cur);
       cur = null;
+    } else {
+      cur.error = true;
     }
   }
   if (cur) {
@@ -108,23 +107,22 @@ export function shiftDay(shift) {
 // 退勤がなく終わりを決められない勤務は null を返す
 export function shiftStats(shift, now) {
   const end = shift.end ?? (shift.open ? now : null);
-  if (shift.start === null || end === null) return { breakMs: null, walkMs: null, workMs: null, standMs: null };
-  const awayMs = { break: 0, walk: 0 };
-  for (const a of shift.aways) awayMs[a.kind] += (a.end ?? end) - a.start;
+  if (shift.start === null || end === null) return { breakMs: null, workMs: null, standMs: null };
+  // 休憩は勤務中に抜ける時間で、実働から引く。立ち時間は実働に含む
+  const breakMs = shift.breaks.reduce((sum, b) => sum + (b.end ?? end) - b.start, 0);
   return {
-    breakMs: awayMs.break,
-    walkMs: awayMs.walk,
-    workMs: end - shift.start - awayMs.break - awayMs.walk,
+    breakMs,
+    workMs: end - shift.start - breakMs,
     standMs: shift.stands.reduce((sum, s) => sum + (s.end ?? end) - s.start, 0),
   };
 }
 
 export function currentState(shifts) {
   const last = shifts.at(-1);
-  if (!last || !last.open) return { status: 'off', shift: null, away: null, stand: null };
-  const away = last.aways.at(-1);
-  if (away && away.end === null) return { status: away.kind, shift: last, away, stand: null };
-  return { status: 'working', shift: last, away: null, stand: openStand(last) };
+  if (!last || !last.open) return { status: 'off', shift: null, onBreak: null, stand: null };
+  const onBreak = last.breaks.at(-1);
+  if (onBreak && onBreak.end === null) return { status: 'break', shift: last, onBreak, stand: null };
+  return { status: 'working', shift: last, onBreak: null, stand: openStand(last) };
 }
 
 export function errorCount(list) {

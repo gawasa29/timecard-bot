@@ -102,25 +102,25 @@ test('Worker 全体の流れ', async (t) => {
   // パネル
   const panel = await (await app.command('panel')).json();
   assert.equal(panel.data.flags, undefined);
-  assert.equal(panel.data.components.length, 4);
-  assert.deepEqual(panel.data.components[1].components.map((b) => b.custom_id), ['timecard:walk_start', 'timecard:walk_end']);
-  assert.deepEqual(panel.data.components[2].components.map((b) => b.custom_id), ['timecard:stand_start', 'timecard:stand_end']);
-  assert.deepEqual(panel.data.components[3].components.map((b) => b.custom_id), ['timecard:today', 'timecard:month']);
+  assert.equal(panel.data.components.length, 3);
+  assert.deepEqual(panel.data.components[0].components.map((b) => b.custom_id), ['timecard:break_start', 'timecard:break_end']);
+  assert.deepEqual(panel.data.components[1].components.map((b) => b.custom_id), ['timecard:stand_start', 'timecard:stand_end']);
+  assert.deepEqual(panel.data.components[2].components.map((b) => b.custom_id), ['timecard:today', 'timecard:month']);
 
-  // 散歩に出て VC を抜け、30 分後に戻る
+  // 休憩に出て VC を抜け、30 分後に戻る
   await minutes(60, app.cron);
-  let res = await data(await app.button('walk_start'));
-  assert.match(res.content, /散歩開始 10:00 を記録しました/);
+  let res = await data(await app.button('break_start'));
+  assert.match(res.content, /休憩開始 10:00 を記録しました/);
   assert.equal(res.flags, 64);
   app.discord.voice.delete('ua');
   await minutes(30, app.cron);
   app.discord.voice.set('ua', 'vc1');
   await minutes(1, app.cron);
-  assert.deepEqual(app.discord.messages.slice(1), ['🚶 <@ua> 散歩開始 10:00', '↩️ <@ua> 散歩終了 10:31']);
+  assert.deepEqual(app.discord.messages.slice(1), ['☕ <@ua> 休憩開始 10:00', '↩️ <@ua> 休憩終了 10:31']);
 
   // 押せないボタン・対象外の人
   assert.match((await data(await app.button('break_end'))).content, /休憩中ではありません/);
-  assert.match((await data(await app.button('walk_start', 'stranger'))).content, /記録の対象ではありません/);
+  assert.match((await data(await app.button('break_start', 'stranger'))).content, /記録の対象ではありません/);
 
   // ボタンを押した瞬間に VC の状態を確かめる（定期実行を待たない）
   app.discord.voice.delete('ua');
@@ -144,9 +144,9 @@ test('Worker 全体の流れ', async (t) => {
 
   // 集計
   res = await data(await app.command('month'));
-  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:00 · 散歩 0:31/);
+  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:31 · 立ち 0:00/);
   res = await data(await app.button('month'));
-  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:00 · 散歩 0:31/);
+  assert.match(res.content, /出勤 1日 · 実働 \*\*2:12\*\* · 休憩 0:31 · 立ち 0:00/);
   assert.equal(res.flags, 64);
   res = await data(await app.command('today', [{ name: 'user', type: 6, value: 'ub' }], 'ua', { users: { ub: { id: 'ub', username: 'bee' } } }));
   assert.match(res.content, /<@ub> の記録\n\*\*未出勤\*\*/);
@@ -157,7 +157,7 @@ test('Worker 全体の流れ', async (t) => {
   const payload = JSON.parse(form.get('payload_json'));
   assert.deepEqual(payload.data.attachments, [{ id: 0, filename: 'timecard-name-ua-2026-10.csv' }]);
   const csv = await form.get('files[0]').text();
-  assert.match(csv, /2026-10-30,金,09:00,11:43,0,31,132,2:12,/);
+  assert.match(csv, /2026-10-30,金,09:00,11:43,31,132,2:12,0,/);
 
   // 手動追加と取り消し
   const opt = (name, value) => ({ name, type: 3, value });
@@ -170,7 +170,7 @@ test('Worker 全体の流れ', async (t) => {
   assert.match(res.content, /2026-10-28 23:00 に休憩開始を追加しました/);
   res = await data(await app.command('add', [opt('type', 'break_end'), opt('time', '23:30'), opt('date', '2026-10-28')]));
   res = await data(await app.command('month'));
-  assert.match(res.content, /出勤 2日 · 実働 \*\*6:12\*\* · 休憩 0:30 · 散歩 0:31/);
+  assert.match(res.content, /出勤 2日 · 実働 \*\*6:12\*\* · 休憩 1:01 · 立ち 0:00/);
   res = await data(await app.command('undo'));
   assert.match(res.content, /休憩終了 2026-10-28 23:30 を取り消しました/);
   assert.match(app.discord.messages.at(-1), /取り消しました/);

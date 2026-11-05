@@ -5,7 +5,7 @@ export class Store {
     this.db = db;
   }
 
-  // source: voice（VC の入退室）/ button / command（手動）/ auto（戻らない休憩・散歩の締め）
+  // source: voice（VC の入退室）/ button / command（手動）/ auto（戻らない休憩の締め）
   async add(userId, type, ts, source) {
     const row = await this.db
       .prepare('INSERT INTO punches (user_id, type, ts, source) VALUES (?, ?, ?, ?) RETURNING id')

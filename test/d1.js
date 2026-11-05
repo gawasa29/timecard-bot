@@ -1,10 +1,14 @@
 // テスト用: node:sqlite を D1 と同じ形で使えるようにする
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+
+const migrations = new URL('../migrations/', import.meta.url);
 
 export function createD1() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../migrations/0001_init.sql', import.meta.url), 'utf8'));
+  for (const file of readdirSync(migrations).filter((f) => f.endsWith('.sql')).sort()) {
+    db.exec(readFileSync(new URL(file, migrations), 'utf8'));
+  }
   return {
     prepare(sql) {
       const stmt = db.prepare(sql);

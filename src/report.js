@@ -15,13 +15,12 @@ import {
 import { localParts } from './time.js';
 
 function totals(shifts, now) {
-  const sum = { days: new Set(), work: 0, break: 0, walk: 0, stand: 0 };
+  const sum = { days: new Set(), work: 0, break: 0, stand: 0 };
   for (const s of shifts) {
-    const { workMs, breakMs, walkMs, standMs } = shiftStats(s, now);
+    const { workMs, breakMs, standMs } = shiftStats(s, now);
     if (s.start !== null) sum.days.add(shiftDay(s));
     sum.work += workMs ?? 0;
     sum.break += breakMs ?? 0;
-    sum.walk += walkMs ?? 0;
     sum.stand += standMs ?? 0;
   }
   return sum;
@@ -29,12 +28,12 @@ function totals(shifts, now) {
 
 export function statusLine(punches, now, disconnected) {
   const shifts = buildShifts(punches);
-  const { status, shift, away, stand } = currentState(shifts);
+  const { status, shift, onBreak, stand } = currentState(shifts);
   if (status === 'working') {
     const standing = stand ? ` · 立ち ${fmtDuration(now - stand.start)}` : '';
     return `勤務中 · ${fmtDuration(shiftStats(shift, now).workMs)}${standing}${disconnected ? '（ボイスチャンネルから切断中）' : ''}`;
   }
-  if (away) return `${STATUS_LABELS[status]} · ${fmtDuration(now - away.start)}`;
+  if (onBreak) return `${STATUS_LABELS[status]} · ${fmtDuration(now - onBreak.start)}`;
   const todayKey = dateKey(now);
   return shifts.some((s) => s.end !== null && shiftDay(s) === todayKey) ? '退勤済み' : '未出勤';
 }
@@ -51,7 +50,7 @@ export function todayReport(punches, now, disconnected = false) {
     for (const p of s.punches) lines.push(`\`${fmtTimeFrom(p.ts, s.punches[0].ts).padStart(7)}\` ${TYPE_LABELS[p.type]}`);
   }
   const t = totals(shifts, now);
-  lines.push(`実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 散歩 ${fmtDuration(t.walk)} · 立ち ${fmtDuration(t.stand)}`);
+  lines.push(`実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 立ち ${fmtDuration(t.stand)}`);
   if (shifts.some((s) => s.error)) lines.push('⚠️ 打刻の順番が合わない勤務があります。');
   return lines.join('\n');
 }
@@ -64,17 +63,17 @@ export function monthReport(punches, ym, now) {
   const shifts = monthShifts(punches, ym);
   const [y, m] = ym.split('-').map(Number);
   const t = totals(shifts, now);
-  const header = `**${y}年${m}月**　出勤 ${t.days.size}日 · 実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 散歩 ${fmtDuration(t.walk)} · 立ち ${fmtDuration(t.stand)}`;
+  const header = `**${y}年${m}月**　出勤 ${t.days.size}日 · 実働 **${fmtDuration(t.work)}** · 休憩 ${fmtDuration(t.break)} · 立ち ${fmtDuration(t.stand)}`;
   if (shifts.length === 0) return `${header}\nこの月の記録はありません。`;
 
   const rows = shifts.map((s) => {
     const first = s.punches[0].ts;
-    const { workMs, breakMs, walkMs, standMs } = shiftStats(s, now);
+    const { workMs, breakMs, standMs } = shiftStats(s, now);
     const start = s.start !== null ? fmtTime(s.start) : '--:--';
     const end = s.end !== null ? fmtTimeFrom(s.end, s.start) : s.open ? '勤務中' : '--:--';
     const detail = workMs === null
       ? '要確認'
-      : `休${fmtDuration(breakMs)} 散${fmtDuration(walkMs)} 実${fmtDuration(workMs)} 立${fmtDuration(standMs)}${s.error ? ' 要確認' : ''}`;
+      : `休${fmtDuration(breakMs)} 実${fmtDuration(workMs)} 立${fmtDuration(standMs)}${s.error ? ' 要確認' : ''}`;
     return `${fmtDateLabel(first)} ${start}-${end.padEnd(5)} ${detail}`;
   });
   const body = `${header}\n\`\`\`\n${rows.join('\n')}\n\`\`\``;
@@ -83,18 +82,17 @@ export function monthReport(punches, ym, now) {
 }
 
 export function monthCsv(punches, ym, now) {
-  const lines = [['日付', '曜日', '出勤', '退勤', '休憩(分)', '散歩(分)', '実働(分)', '実働(時間)', '立ち(分)', '備考'].join(',')];
+  const lines = [['日付', '曜日', '出勤', '退勤', '休憩(分)', '実働(分)', '実働(時間)', '立ち(分)', '備考'].join(',')];
   for (const s of monthShifts(punches, ym)) {
     if (s.start === null) continue;
     const done = s.end !== null;
-    const { breakMs, walkMs, workMs, standMs } = shiftStats(s, now);
+    const { breakMs, workMs, standMs } = shiftStats(s, now);
     lines.push([
       shiftDay(s),
       WEEKDAYS[localParts(s.start).weekday],
       fmtTime(s.start),
       done ? fmtTimeFrom(s.end, s.start) : '',
       done ? Math.floor(breakMs / 60000) : '',
-      done ? Math.floor(walkMs / 60000) : '',
       done ? Math.floor(workMs / 60000) : '',
       done ? fmtDuration(workMs) : '',
       done ? Math.floor(standMs / 60000) : '',

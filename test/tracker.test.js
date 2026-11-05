@@ -40,7 +40,7 @@ function setup({ graceMinutes = 5, maxAwayMinutes = 180 } = {}) {
     stats: async (id = A) =>
       buildShifts(await store.list(id)).map((s) => {
         const r = shiftStats(s, now);
-        return { work: r.workMs / MIN, break: r.breakMs / MIN, walk: r.walkMs / MIN, error: s.error };
+        return { work: r.workMs / MIN, break: r.breakMs / MIN, error: s.error };
       }),
   };
 }
@@ -55,7 +55,7 @@ test('VC に入ると出勤、抜けて猶予が過ぎると抜けた時刻で�
   assert.deepEqual(await t.punches(), ['in@09:00']);
   await t.advance(1);
   assert.deepEqual(await t.punches(), ['in@09:00', 'out@17:01']);
-  assert.deepEqual(await t.stats(), [{ work: 481, break: 0, walk: 0, error: false }]);
+  assert.deepEqual(await t.stats(), [{ work: 481, break: 0, error: false }]);
 });
 
 test('猶予内に戻れば勤務が続く', async () => {
@@ -81,21 +81,21 @@ test('変化がない確認では何も書き込まない', async () => {
   assert.equal((await t.tracker.presence(A)).version, version);
 });
 
-test('散歩中は VC を抜けても退勤にならず、戻ると散歩が終わる', async () => {
+test('休憩中は VC を抜けても退勤にならず、戻ると休憩が終わる', async () => {
   const t = setup();
   t.join();
   await t.tick();
   await t.advance(60);
-  assert.equal((await t.press('walk_start')).ok, true);
+  assert.equal((await t.press('break_start')).ok, true);
   t.leave();
   await t.advance(30);
   t.join();
   await t.advance(1);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'walk_start@10:00', 'walk_end@10:31']);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'break_end@10:31']);
   await t.advance(29);
   t.leave();
   await t.advance(6);
-  assert.deepEqual(await t.stats(), [{ work: 90, break: 0, walk: 31, error: false }]);
+  assert.deepEqual(await t.stats(), [{ work: 90, break: 31, error: false }]);
 });
 
 test('休憩は VC にいたままでも記録でき、実働から引く', async () => {
@@ -108,20 +108,20 @@ test('休憩は VC にいたままでも記録でき、実働から引く', asyn
   await t.press('break_end');
   await t.advance(60);
   assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@12:00', 'break_end@13:00']);
-  assert.deepEqual(await t.stats(), [{ work: 240, break: 60, walk: 0, error: false }]);
+  assert.deepEqual(await t.stats(), [{ work: 240, break: 60, error: false }]);
 });
 
-test('VC を抜けた直後（猶予中）に散歩開始を押すと、抜けた時刻から散歩になる', async () => {
+test('VC を抜けた直後（猶予中）に休憩開始を押すと、抜けた時刻から休憩になる', async () => {
   const t = setup();
   t.join();
   await t.tick();
   await t.advance(60);
   t.leave();
   await t.advance(2);
-  assert.equal((await t.press('walk_start')).ok, true);
+  assert.equal((await t.press('break_start')).ok, true);
   await t.advance(10);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'walk_start@10:01']);
-  assert.equal((await t.tracker.state(A)).status, 'walk');
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01']);
+  assert.equal((await t.tracker.state(A)).status, 'break');
 });
 
 test('VC の外で休憩終了を押し、戻らなければその時刻で退勤', async () => {
@@ -138,18 +138,18 @@ test('VC の外で休憩終了を押し、戻らなければその時刻で退�
   assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'break_end@10:30', 'out@10:30']);
 });
 
-test('戻らない休憩・散歩は、抜けた時点の退勤になる', async () => {
+test('戻らない休憩は、抜けた時点の退勤になる', async () => {
   const t = setup({ maxAwayMinutes: 180 });
   t.join();
   await t.tick();
   await t.advance(60);
-  await t.press('walk_start');
+  await t.press('break_start');
   t.leave();
   await t.advance(180);
-  assert.equal((await t.tracker.state(A)).status, 'walk');
+  assert.equal((await t.tracker.state(A)).status, 'break');
   await t.advance(1);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'walk_start@10:00', 'out@10:00']);
-  assert.deepEqual(await t.stats(), [{ work: 60, break: 0, walk: 0, error: false }]);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'out@10:00']);
+  assert.deepEqual(await t.stats(), [{ work: 60, break: 0, error: false }]);
   t.join();
   await t.advance(1);
   assert.equal((await t.tracker.state(A)).status, 'working');
@@ -170,10 +170,11 @@ test('ボタンは今の状態で押せるものだけ受け付ける', async ()
   t.join();
   await t.tick();
   assert.equal((await t.press('break_end')).ok, false);
-  assert.equal((await t.press('walk_start')).ok, true);
+  assert.equal((await t.press('break_start')).ok, true);
   assert.equal((await t.press('break_start')).ok, false);
-  assert.equal((await t.press('break_end')).ok, false);
+  assert.equal((await t.press('break_end')).ok, true);
   assert.equal((await t.press('out')).ok, false);
+  assert.equal((await t.press('walk_start')).ok, false); // 無くなった操作
   assert.equal((await t.press('nope')).ok, false);
 });
 
@@ -244,7 +245,7 @@ test('初めての確認で VC にいれば出勤、いなければ何も記録�
 test('同時に動いた操作は片方だけ反映する', async () => {
   const t = setup();
   t.join();
-  await Promise.all([t.tick(), t.tick(), t.press('walk_start')]);
+  await Promise.all([t.tick(), t.tick(), t.press('break_start')]);
   const punches = await t.punches();
   assert.equal(punches.filter((p) => p.startsWith('in@')).length, 1);
   assert.equal((await t.stats()).every((s) => !s.error), true);
@@ -259,11 +260,11 @@ test('手動追加は順番が合う打刻だけ受け付ける', async () => {
   assert.equal((await add('break_end', at(12, 0))).ok, false);
   assert.equal((await add('in', at(9, 0))).ok, true);
   assert.equal((await add('out', at(18, 0))).ok, true);
-  assert.equal((await add('walk_start', at(10, 0))).ok, true);
-  assert.equal((await add('break_start', at(10, 30))).ok, false); // 散歩と重なる
-  assert.equal((await add('walk_end', at(10, 20))).ok, true);
+  assert.equal((await add('break_start', at(10, 0))).ok, true);
+  assert.equal((await add('break_start', at(10, 10))).ok, false); // 休憩中にもう一度
+  assert.equal((await add('break_end', at(10, 20))).ok, true);
   assert.equal((await add('in', at(17, 0))).ok, false); // 勤務の途中に出勤
-  assert.deepEqual(await t.punches(), ['in@09:00', 'walk_start@10:00', 'walk_end@10:20', 'out@18:00']);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'break_end@10:20', 'out@18:00']);
 });
 
 test('出勤だけでは順番が合わない過去の勤務も、退勤と一緒なら追加できる', async () => {
@@ -299,8 +300,8 @@ test('複数人を別々に記録する', async () => {
   await t.advance(30);
   t.join(B);
   await t.advance(1);
-  await t.press('walk_start', A);
-  assert.equal((await t.tracker.state(A)).status, 'walk');
+  await t.press('break_start', A);
+  assert.equal((await t.tracker.state(A)).status, 'break');
   assert.equal((await t.tracker.state(B)).status, 'working');
   assert.deepEqual(await t.punches(B), ['in@09:31']);
 });

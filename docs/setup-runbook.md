@@ -187,7 +187,7 @@ npm run deploy
 
 **成功の条件:**
 
-- `db:migrate` で `0001_init.sql` が `✅`、または適用済みと表示される
+- `db:migrate` で `0001_init.sql` と `0002_walk_to_break.sql` が `✅`、または適用済みと表示される
 - `deploy` で `https://timecard-bot.<サブドメイン>.workers.dev` と `schedule: * * * * *` が表示される
 
 表示された URL を控えます。以降は `WORKER_URL` と呼びます。

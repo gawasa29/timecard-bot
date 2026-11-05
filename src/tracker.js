@@ -1,13 +1,12 @@
 import { STATUS_LABELS, buildShifts, currentState, errorCount } from './shifts.js';
 
-const AWAY_NAMES = { break: '休憩', walk: '散歩' };
 const NO_PRESENCE = { inVoice: false, leftAt: null, version: null };
 const fail = (message) => ({ ok: false, message });
 
 // VC にいるかどうかの確認（定期実行とボタン操作のとき）とボタン操作を打刻に変える。
 // - 勤務用 VC に入ると出勤、抜けると猶予（graceMs）のあとに、抜けた時刻で退勤。猶予内に戻れば勤務が続く。
-// - 休憩・散歩中は VC を抜けても退勤にしない。VC に戻ると休憩・散歩を終える。
-// - maxAwayMs を過ぎても戻らない休憩・散歩は、抜けた時点で退勤したものとみなす。
+// - 休憩中は VC を抜けても退勤にしない。VC に戻ると休憩を終える。
+// - maxAwayMs を過ぎても戻らない休憩は、抜けた時点で退勤したものとみなす。
 export class Tracker {
   constructor({ store, graceMs, maxAwayMs, onPunch = () => {} }) {
     this.store = store;
@@ -42,7 +41,7 @@ export class Tracker {
   // ---------- VC にいるかの確認 ----------
   async observe(userId, inVoice, now) {
     const presence = await this.presence(userId);
-    const { status, away } = await this.state(userId);
+    const { status, onBreak } = await this.state(userId);
     const punches = [];
     let leftAt = presence.leftAt;
 
@@ -52,10 +51,10 @@ export class Tracker {
       } else if (!presence.inVoice) {
         if (status === 'off') {
           punches.push({ type: 'in', ts: now, source: 'voice' });
-        } else if (away && now - away.start > this.maxAwayMs) {
-          punches.push({ type: 'out', ts: away.start, source: 'auto' }, { type: 'in', ts: now, source: 'voice' });
-        } else if (away) {
-          punches.push({ type: `${away.kind}_end`, ts: now, source: 'voice' });
+        } else if (onBreak && now - onBreak.start > this.maxAwayMs) {
+          punches.push({ type: 'out', ts: onBreak.start, source: 'auto' }, { type: 'in', ts: now, source: 'voice' });
+        } else if (onBreak) {
+          punches.push({ type: 'break_end', ts: now, source: 'voice' });
         }
       }
     } else {
@@ -64,8 +63,8 @@ export class Tracker {
       if (leftAt !== null && now - leftAt >= this.graceMs) {
         if (status === 'working') punches.push({ type: 'out', ts: leftAt, source: 'voice' });
         leftAt = null;
-      } else if (away && now - away.start > this.maxAwayMs) {
-        punches.push({ type: 'out', ts: away.start, source: 'auto' });
+      } else if (onBreak && now - onBreak.start > this.maxAwayMs) {
+        punches.push({ type: 'out', ts: onBreak.start, source: 'auto' });
       }
     }
 
@@ -82,15 +81,14 @@ export class Tracker {
     let punch;
     let note = '';
 
-    if (type === 'break_start' || type === 'walk_start') {
+    if (type === 'break_start') {
       if (status === 'off') return fail('出勤していません。勤務用のボイスチャンネルに入ると出勤になります。');
       if (status !== 'working') return fail(`今は${STATUS_LABELS[status]}です。`);
-      // VC を抜けた直後（猶予中）に押したなら、抜けた時刻から休憩・散歩にする
+      // VC を抜けた直後（猶予中）に押したなら、抜けた時刻から休憩にする
       punch = { type, ts: presence.leftAt ?? now, source: 'button' };
       next.leftAt = null;
-    } else if (type === 'break_end' || type === 'walk_end') {
-      const kind = type === 'break_end' ? 'break' : 'walk';
-      if (status !== kind) return fail(`${AWAY_NAMES[kind]}中ではありません。`);
+    } else if (type === 'break_end') {
+      if (status !== 'break') return fail('休憩中ではありません。');
       punch = { type, ts: now, source: 'button' };
       if (!presence.inVoice) {
         next.leftAt = now;
@@ -123,7 +121,7 @@ export class Tracker {
     const list = await this.store.list(userId);
     const candidate = [...list, ...additions.map((a, i) => ({ id: Number.MAX_SAFE_INTEGER - additions.length + i, userId, ...a }))];
     if (errorCount(candidate) > errorCount(list)) {
-      return fail('その時刻に入れると打刻の順番が合わなくなります（出勤で始め、休憩・散歩・立ちは開始と終了を対にする）。');
+      return fail('その時刻に入れると打刻の順番が合わなくなります（出勤で始め、休憩・立ちは開始と終了を対にする）。');
     }
     const punches = [];
     for (const a of additions) punches.push(await this.record(userId, a.type, a.ts, 'command'));
