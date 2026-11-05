@@ -106,26 +106,8 @@ export class Tracker {
     const { status, stand } = await this.state(userId);
     const next = { state: presence.state, leftAt: presence.leftAt };
     let punch;
-    let note = '';
 
-    if (type === 'break_start') {
-      if (status === 'off') return fail('出勤していません。勤務用のボイスチャンネルに入ると出勤になります。');
-      if (presence.state === 'other') return fail('別のボイスチャンネルにいる間は、自動で休憩になります。');
-      if (status !== 'working') return fail(`今は${STATUS_LABELS[status]}です。`);
-      // VC を抜けた直後（猶予中）に押したなら、抜けた時刻から休憩にする
-      punch = { type, ts: presence.leftAt ?? now, source: 'button' };
-      next.leftAt = null;
-    } else if (type === 'break_end') {
-      if (status !== 'break') return fail('休憩中ではありません。');
-      if (presence.state === 'other') {
-        return fail('別のボイスチャンネルにいる間は、勤務用のボイスチャンネルに戻ると休憩が終わります。');
-      }
-      punch = { type, ts: now, source: 'button' };
-      if (presence.state === 'none') {
-        next.leftAt = now;
-        note = `勤務用のボイスチャンネルに${Math.round(this.graceMs / 60000)}分以内に戻らないと、この時刻で退勤になります。`;
-      }
-    } else if (type === 'stand_start') {
+    if (type === 'stand_start') {
       if (status === 'off') return fail('出勤していません。勤務用のボイスチャンネルに入ると出勤になります。');
       if (status !== 'working') return fail(`今は${STATUS_LABELS[status]}です。`);
       if (stand) return fail('すでに立っています。');
@@ -142,7 +124,7 @@ export class Tracker {
 
     const recorded = await this.commit(userId, presence, next, [punch]);
     if (!recorded) return fail('ほかの操作と重なりました。もう一度押してください。');
-    return { ok: true, punch: recorded[0], note };
+    return { ok: true, punch: recorded[0] };
   }
 
   // ---------- コマンドでの修正 ----------

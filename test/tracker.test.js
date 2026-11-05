@@ -87,16 +87,16 @@ test('休憩中は VC を抜けても退勤にならず、戻ると休憩が終�
   t.join();
   await t.tick();
   await t.advance(60);
-  assert.equal((await t.press('break_start')).ok, true);
+  t.other();
+  await t.advance(1); // 10:01 に休憩開始
   t.leave();
-  await t.advance(30);
+  await t.advance(30); // 10:02..10:31
   t.join();
-  await t.advance(1);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'break_end@10:31']);
-  await t.advance(29);
+  await t.advance(1); // 10:32 に休憩終了
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01', 'break_end@10:32']);
   t.leave();
-  await t.advance(6);
-  assert.deepEqual(await t.stats(), [{ work: 90, break: 31, error: false }]);
+  await t.advance(6); // 10:33..10:38、10:33 に抜けたと気づいて 5 分後に退勤
+  assert.deepEqual(await t.stats(), [{ work: 62, break: 31, error: false }]);
 });
 
 test('勤務用の VC から別の VC に移ると休憩になり、戻ると終わる', async () => {
@@ -113,17 +113,6 @@ test('勤務用の VC から別の VC に移ると休憩になり、戻ると終
   await t.advance(1); // 10:32
   assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01', 'break_end@10:32']);
   assert.deepEqual(await t.stats(), [{ work: 61, break: 31, error: false }]);
-});
-
-test('別の VC にいる間は休憩ボタンを使えない', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(60);
-  t.other();
-  await t.advance(1);
-  assert.match((await t.press('break_start')).message, /自動で休憩/);
-  assert.match((await t.press('break_end')).message, /戻ると休憩が終わります/);
 });
 
 test('猶予中に別の VC へ移ると、抜けた時刻から休憩になる', async () => {
@@ -165,83 +154,36 @@ test('別の VC にいるまま 3 時間たつと、休憩開始の時刻で退�
   assert.equal((await t.tracker.state(A)).status, 'off');
 });
 
-test('休憩は VC にいたままでも記録でき、実働から引く', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(180);
-  await t.press('break_start');
-  await t.advance(60);
-  await t.press('break_end');
-  await t.advance(60);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@12:00', 'break_end@13:00']);
-  assert.deepEqual(await t.stats(), [{ work: 240, break: 60, error: false }]);
-});
-
-test('VC を抜けた直後（猶予中）に休憩開始を押すと、抜けた時刻から休憩になる', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(60);
-  t.leave();
-  await t.advance(2);
-  assert.equal((await t.press('break_start')).ok, true);
-  await t.advance(10);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01']);
-  assert.equal((await t.tracker.state(A)).status, 'break');
-});
-
-test('VC の外で休憩終了を押し、戻らなければその時刻で退勤', async () => {
-  const t = setup();
-  t.join();
-  await t.tick();
-  await t.advance(60);
-  await t.press('break_start');
-  t.leave();
-  await t.advance(30);
-  const r = await t.press('break_end');
-  assert.match(r.note, /5分以内/);
-  await t.advance(5);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'break_end@10:30', 'out@10:30']);
-});
-
 test('戻らない休憩は、抜けた時点の退勤になる', async () => {
   const t = setup({ maxAwayMinutes: 180 });
   t.join();
   await t.tick();
   await t.advance(60);
-  await t.press('break_start');
+  t.other();
+  await t.advance(1); // 10:01 に休憩開始
   t.leave();
-  await t.advance(180);
+  await t.advance(180); // 10:02..13:01（ちょうど 3 時間）
   assert.equal((await t.tracker.state(A)).status, 'break');
-  await t.advance(1);
-  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:00', 'out@10:00']);
-  assert.deepEqual(await t.stats(), [{ work: 60, break: 0, error: false }]);
+  await t.advance(1); // 13:02
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01', 'out@10:01']);
+  assert.deepEqual(await t.stats(), [{ work: 61, break: 0, error: false }]);
   t.join();
   await t.advance(1);
   assert.equal((await t.tracker.state(A)).status, 'working');
 });
 
-test('休憩中に VC にいたままなら、長くなっても退勤にしない', async () => {
-  const t = setup({ maxAwayMinutes: 60 });
-  t.join();
-  await t.tick();
-  await t.press('break_start');
-  await t.advance(120);
-  assert.equal((await t.tracker.state(A)).status, 'break');
-});
-
-test('ボタンは今の状態で押せるものだけ受け付ける', async () => {
+test('パネルのボタンは今の状態で押せるものだけ受け付ける', async () => {
   const t = setup();
-  assert.equal((await t.press('break_start')).ok, false);
+  assert.equal((await t.press('stand_end')).ok, false);
+  assert.equal((await t.press('break_start')).ok, false); // 無くなった操作
+  assert.equal((await t.press('break_end')).ok, false);
   t.join();
   await t.tick();
-  assert.equal((await t.press('break_end')).ok, false);
-  assert.equal((await t.press('break_start')).ok, true);
-  assert.equal((await t.press('break_start')).ok, false);
-  assert.equal((await t.press('break_end')).ok, true);
+  assert.equal((await t.press('stand_start')).ok, true);
+  assert.match((await t.press('stand_start')).message, /すでに立っています/);
+  assert.equal((await t.press('stand_end')).ok, true);
   assert.equal((await t.press('out')).ok, false);
-  assert.equal((await t.press('walk_start')).ok, false); // 無くなった操作
+  assert.equal((await t.press('walk_start')).ok, false);
   assert.equal((await t.press('nope')).ok, false);
 });
 
@@ -257,12 +199,15 @@ test('立ち時間は実働から引かず、休憩に入ると終わる', async
   assert.equal((await t.press('stand_end')).ok, true);
   await t.advance(10);
   await t.press('stand_start');
-  await t.advance(15);
-  assert.equal((await t.press('break_start')).ok, true);
+  await t.advance(14); // 9:54
+  t.other();
+  await t.advance(1); // 9:55 に休憩開始。立ち時間もここで終わる
+  assert.equal((await t.tracker.state(A)).status, 'break');
   assert.equal((await t.press('stand_start')).ok, false);
   assert.equal((await t.press('stand_end')).ok, false);
-  await t.advance(30);
-  await t.press('break_end');
+  await t.advance(30); // 10:25
+  t.join();
+  await t.advance(1); // 10:26 に休憩終了
   const [shift] = buildShifts(await t.store.list(A));
   assert.equal(shift.error, false);
   const stats = shiftStats(shift, t.now());
@@ -312,7 +257,7 @@ test('初めての確認で VC にいれば出勤、いなければ何も記録�
 test('同時に動いた操作は片方だけ反映する', async () => {
   const t = setup();
   t.join();
-  await Promise.all([t.tick(), t.tick(), t.press('break_start')]);
+  await Promise.all([t.tick(), t.tick(), t.press('stand_start')]);
   const punches = await t.punches();
   assert.equal(punches.filter((p) => p.startsWith('in@')).length, 1);
   assert.equal((await t.stats()).every((s) => !s.error), true);
@@ -352,7 +297,8 @@ test('取り消しは最後に記録した打刻を消す', async () => {
   t.join();
   await t.tick();
   await t.advance(60);
-  await t.press('break_start');
+  t.other();
+  await t.advance(1); // 10:01 に休憩開始
   assert.equal((await t.tracker.undo(A)).punch.type, 'break_start');
   assert.deepEqual(await t.punches(), ['in@09:00']);
   await t.tracker.undo(A);
@@ -366,8 +312,8 @@ test('複数人を別々に記録する', async () => {
   await t.tick();
   await t.advance(30);
   t.join(B);
-  await t.advance(1);
-  await t.press('break_start', A);
+  t.other(A);
+  await t.advance(1); // 9:31: A は別の VC、B は勤務用 VC
   assert.equal((await t.tracker.state(A)).status, 'break');
   assert.equal((await t.tracker.state(B)).status, 'working');
   assert.deepEqual(await t.punches(B), ['in@09:31']);

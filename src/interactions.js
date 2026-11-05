@@ -31,12 +31,10 @@ function panelMessage() {
       '**タイムカード**',
       '勤務用のボイスチャンネルに入ると出勤、抜けると退勤になります（反映まで1分ほどかかります）。',
       '別のボイスチャンネルに入ると休憩になり、勤務用のボイスチャンネルに戻ると終わります。',
-      '昼食など、VC を抜けて休むときは休憩開始・休憩終了を押してください。休憩中は VC を抜けても退勤になりません。',
       '立ち時間は実働に含みます。休憩に入ると立ち時間も終わります。',
       '「今日の記録」は自分、「今月の記録」は全員分を表示します。',
     ].join('\n'),
     components: [
-      row(button('break_start', ButtonStyle.PRIMARY), button('break_end', ButtonStyle.SECONDARY)),
       row(button('stand_start', ButtonStyle.PRIMARY), button('stand_end', ButtonStyle.SECONDARY)),
       row(button('today', ButtonStyle.SECONDARY, '今日の記録'), button('month', ButtonStyle.SECONDARY, '今月の記録')),
     ],
@@ -102,7 +100,6 @@ async function handleButton(interaction, user, app) {
     `${TYPE_LABELS[type]} ${fmtTime(result.punch.ts)} を記録しました。`,
     statusLine(await store.list(user.id), now, await disconnected()),
   ];
-  if (result.note) lines.push(result.note);
   return reply(lines.join('\n'));
 }
 

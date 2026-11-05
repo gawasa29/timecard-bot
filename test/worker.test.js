@@ -102,24 +102,23 @@ test('Worker 全体の流れ', async (t) => {
   // パネル
   const panel = await (await app.command('panel')).json();
   assert.equal(panel.data.flags, undefined);
-  assert.equal(panel.data.components.length, 3);
-  assert.deepEqual(panel.data.components[0].components.map((b) => b.custom_id), ['timecard:break_start', 'timecard:break_end']);
-  assert.deepEqual(panel.data.components[1].components.map((b) => b.custom_id), ['timecard:stand_start', 'timecard:stand_end']);
-  assert.deepEqual(panel.data.components[2].components.map((b) => b.custom_id), ['timecard:today', 'timecard:month']);
+  assert.equal(panel.data.components.length, 2);
+  assert.deepEqual(panel.data.components[0].components.map((b) => b.custom_id), ['timecard:stand_start', 'timecard:stand_end']);
+  assert.deepEqual(panel.data.components[1].components.map((b) => b.custom_id), ['timecard:today', 'timecard:month']);
 
-  // 休憩に出て VC を抜け、30 分後に戻る
-  await minutes(60, app.cron);
-  let res = await data(await app.button('break_start'));
-  assert.match(res.content, /休憩開始 10:00 を記録しました/);
-  assert.equal(res.flags, 64);
+  // 別の VC に移ると休憩になり、30 分後に勤務用 VC へ戻ると終わる
+  await minutes(60, app.cron); // 10:00
+  app.discord.voice.set('ua', 'vc2');
+  await minutes(1, app.cron); // 10:01 に休憩開始
   app.discord.voice.delete('ua');
-  await minutes(30, app.cron);
+  await minutes(30, app.cron); // 10:02..10:31
   app.discord.voice.set('ua', 'vc1');
-  await minutes(1, app.cron);
-  assert.deepEqual(app.discord.messages.slice(1), ['☕ <@ua> 休憩開始 10:00', '↩️ <@ua> 休憩終了 10:31']);
+  await minutes(1, app.cron); // 10:32 に休憩終了
+  assert.deepEqual(app.discord.messages.slice(1), ['☕ <@ua> 休憩開始 10:01', '↩️ <@ua> 休憩終了 10:32']);
 
   // 押せないボタン・対象外の人
-  assert.match((await data(await app.button('break_end'))).content, /休憩中ではありません/);
+  let res;
+  assert.match((await data(await app.button('stand_end'))).content, /立っていません/);
   assert.match((await data(await app.button('break_start', 'stranger'))).content, /記録の対象ではありません/);
 
   // ボタンを押した瞬間に VC の状態を確かめる（定期実行を待たない）
@@ -137,7 +136,7 @@ test('Worker 全体の流れ', async (t) => {
   assert.equal(app.discord.messages.length, 3);
 
   // 退勤
-  await minutes(60, app.cron);
+  await minutes(59, app.cron);
   app.discord.voice.delete('ua');
   await minutes(6, app.cron);
   assert.equal(app.discord.messages.at(-1), '🔴 <@ua> 退勤 11:43');
@@ -204,10 +203,6 @@ test('勤務用の VC から別の VC に移ると休憩になり、戻ると終
   app.discord.voice.set('ua', 'vc2');
   await minutes(1); // 10:01
   assert.deepEqual(app.discord.messages, ['🟢 <@ua> 出勤 09:00', '☕ <@ua> 休憩開始 10:01']);
-
-  // 別の VC にいる間は休憩ボタンを使えない
-  const res = await (await app.button('break_start')).json();
-  assert.match(res.data.content, /自動で休憩/);
 
   app.discord.voice.set('ua', 'vc1');
   await minutes(1); // 10:02
