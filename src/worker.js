@@ -30,7 +30,10 @@ function createApp(env, ctx) {
     maxAwayMs: config.maxAwayMs,
     onPunch: (punch) => waitUntil(log(punchLogLine(punch))),
   });
-  const isWorkChannel = (channelId) => channelId !== null && config.workVoiceChannelIds.has(channelId);
+  const voiceState = (channelId) => {
+    if (channelId === null) return 'none';
+    return config.workVoiceChannelIds.has(channelId) ? 'work' : 'other';
+  };
 
   // VC の状態を取れなかったときは前回の状態のままにする（入退室を取り違えないため）
   async function syncUser(userId) {
@@ -41,7 +44,7 @@ function createApp(env, ctx) {
       console.error(err);
       return;
     }
-    await tracker.observe(userId, isWorkChannel(channelId), Date.now());
+    await tracker.observe(userId, voiceState(channelId), Date.now());
   }
 
   return { config, store, tracker, log, waitUntil, syncUser, now: () => Date.now() };

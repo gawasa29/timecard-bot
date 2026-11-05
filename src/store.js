@@ -37,21 +37,22 @@ export class Store {
 
   async getPresence(userId) {
     const r = await this.db
-      .prepare('SELECT in_voice, left_at, version FROM presence WHERE user_id = ?')
+      .prepare('SELECT state, left_at, version FROM presence WHERE user_id = ?')
       .bind(userId)
       .first();
-    return r && { inVoice: r.in_voice === 1, leftAt: r.left_at, version: r.version };
+    return r && { state: r.state, leftAt: r.left_at, version: r.version };
   }
 
   // 読んだときから誰も書き換えていなければ保存して true を返す
-  async savePresence(userId, { inVoice, leftAt }, expectedVersion) {
+  async savePresence(userId, { state, leftAt }, expectedVersion) {
+    const value = state ?? 'none';
     const stmt = expectedVersion === null
       ? this.db
-        .prepare('INSERT INTO presence (user_id, in_voice, left_at, version) VALUES (?, ?, ?, 1) ON CONFLICT (user_id) DO NOTHING')
-        .bind(userId, inVoice ? 1 : 0, leftAt)
+        .prepare('INSERT INTO presence (user_id, state, left_at, version) VALUES (?, ?, ?, 1) ON CONFLICT (user_id) DO NOTHING')
+        .bind(userId, value, leftAt)
       : this.db
-        .prepare('UPDATE presence SET in_voice = ?, left_at = ?, version = version + 1 WHERE user_id = ? AND version = ?')
-        .bind(inVoice ? 1 : 0, leftAt, userId, expectedVersion);
+        .prepare('UPDATE presence SET state = ?, left_at = ?, version = version + 1 WHERE user_id = ? AND version = ?')
+        .bind(value, leftAt, userId, expectedVersion);
     const { meta } = await stmt.run();
     return meta.changes === 1;
   }

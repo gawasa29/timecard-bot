@@ -187,3 +187,29 @@ test('Worker 全体の流れ', async (t) => {
   res = await data(await app.send({ type: 2, guild_id: 'other', member: { user: { id: 'ua' } }, data: { name: 'today' } }));
   assert.match(res.content, /このサーバーでは使えません/);
 });
+
+test('勤務用の VC から別の VC に移ると休憩になり、戻ると終わる', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 9, 30, 0, 0) }); // 日本時間 09:00
+  const app = setup();
+  const minutes = async (n) => {
+    for (let i = 0; i < n; i++) {
+      t.mock.timers.tick(60 * 1000);
+      await app.cron();
+    }
+  };
+
+  app.discord.voice.set('ua', 'vc1');
+  await app.cron();
+  await minutes(60); // 10:00
+  app.discord.voice.set('ua', 'vc2');
+  await minutes(1); // 10:01
+  assert.deepEqual(app.discord.messages, ['🟢 <@ua> 出勤 09:00', '☕ <@ua> 休憩開始 10:01']);
+
+  // 別の VC にいる間は休憩ボタンを使えない
+  const res = await (await app.button('break_start')).json();
+  assert.match(res.data.content, /自動で休憩/);
+
+  app.discord.voice.set('ua', 'vc1');
+  await minutes(1); // 10:02
+  assert.equal(app.discord.messages.at(-1), '↩️ <@ua> 休憩終了 10:02');
+});

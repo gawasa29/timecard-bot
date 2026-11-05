@@ -1,12 +1,13 @@
 import { STATUS_LABELS, buildShifts, currentState, errorCount } from './shifts.js';
 
-const NO_PRESENCE = { inVoice: false, leftAt: null, version: null };
+const NO_PRESENCE = { state: null, leftAt: null, version: null };
 const fail = (message) => ({ ok: false, message });
 
 // VC にいるかどうかの確認（定期実行とボタン操作のとき）とボタン操作を打刻に変える。
+// vcState: 'work'（勤務として数える VC）/ 'other'（それ以外の VC）/ 'none'（VC の外）
 // - 勤務用 VC に入ると出勤、抜けると猶予（graceMs）のあとに、抜けた時刻で退勤。猶予内に戻れば勤務が続く。
-// - 休憩中は VC を抜けても退勤にしない。VC に戻ると休憩を終える。
-// - maxAwayMs を過ぎても戻らない休憩は、抜けた時点で退勤したものとみなす。
+// - 勤務用 VC から別の VC に移ると休憩。勤務用 VC に戻ると休憩を終える。
+// - 休憩中は VC を抜けても退勤にしない。maxAwayMs を過ぎても戻らない休憩は、抜けた時点で退勤したものとみなす。
 export class Tracker {
   constructor({ store, graceMs, maxAwayMs, onPunch = () => {} }) {
     this.store = store;
@@ -39,58 +40,88 @@ export class Tracker {
   }
 
   // ---------- VC にいるかの確認 ----------
-  async observe(userId, inVoice, now) {
+  async observe(userId, vcState, now) {
     const presence = await this.presence(userId);
+    const prev = presence.state ?? 'none';
     const { status, onBreak } = await this.state(userId);
     const punches = [];
     let leftAt = presence.leftAt;
+    const awayTooLong = status === 'break' && onBreak && now - onBreak.start > this.maxAwayMs;
 
-    if (inVoice) {
-      if (leftAt !== null) {
-        leftAt = null; // 猶予内に戻った
-      } else if (!presence.inVoice) {
+    if (vcState === 'work') {
+      // 勤務用 VC に戻れば、猶予も休憩も終わる
+      leftAt = null;
+      if (prev !== 'work') {
         if (status === 'off') {
           punches.push({ type: 'in', ts: now, source: 'voice' });
-        } else if (onBreak && now - onBreak.start > this.maxAwayMs) {
-          punches.push({ type: 'out', ts: onBreak.start, source: 'auto' }, { type: 'in', ts: now, source: 'voice' });
-        } else if (onBreak) {
-          punches.push({ type: 'break_end', ts: now, source: 'voice' });
+        } else if (status === 'break') {
+          if (awayTooLong) {
+            punches.push({ type: 'out', ts: onBreak.start, source: 'auto' }, { type: 'in', ts: now, source: 'voice' });
+          } else {
+            punches.push({ type: 'break_end', ts: now, source: 'voice' });
+          }
         }
       }
+      // 勤務用 VC にいたままの休憩は、長くなっても退勤にしない
+    } else if (vcState === 'other') {
+      if (status === 'working') {
+        if (prev === 'none') {
+          if (leftAt === null) leftAt = now;
+          if (now - leftAt >= this.graceMs) {
+            // 猶予が過ぎていたら、抜けた時点で退勤
+            punches.push({ type: 'out', ts: leftAt, source: 'voice' });
+          } else {
+            // 猶予中に別の VC へ移ったら、抜けた時刻から休憩にする
+            punches.push({ type: 'break_start', ts: leftAt, source: 'voice' });
+          }
+          leftAt = null;
+        } else if (prev === 'work') {
+          punches.push({ type: 'break_start', ts: now, source: 'voice' });
+        }
+      }
+      if (awayTooLong) {
+        punches.push({ type: 'out', ts: onBreak.start, source: 'auto' });
+        leftAt = null;
+      }
     } else {
-      // 勤務中に VC を抜けた（初めての確認で VC の外にいた場合も含む）
-      if (status === 'working' && leftAt === null && (presence.inVoice || presence.version === null)) leftAt = now;
+      if (status === 'working' && leftAt === null) leftAt = now;
       if (leftAt !== null && now - leftAt >= this.graceMs) {
         if (status === 'working') punches.push({ type: 'out', ts: leftAt, source: 'voice' });
         leftAt = null;
-      } else if (onBreak && now - onBreak.start > this.maxAwayMs) {
+      }
+      if (awayTooLong) {
         punches.push({ type: 'out', ts: onBreak.start, source: 'auto' });
+        leftAt = null;
       }
     }
 
-    const unchanged = presence.version !== null && presence.inVoice === inVoice && presence.leftAt === leftAt;
+    const unchanged = presence.version !== null && presence.state === vcState && presence.leftAt === leftAt;
     if (unchanged && punches.length === 0) return [];
-    return (await this.commit(userId, presence, { inVoice, leftAt }, punches)) ?? [];
+    return (await this.commit(userId, presence, { state: vcState, leftAt }, punches)) ?? [];
   }
 
   // ---------- パネルのボタン ----------
   async press(userId, type, now) {
     const presence = await this.presence(userId);
     const { status, stand } = await this.state(userId);
-    const next = { inVoice: presence.inVoice, leftAt: presence.leftAt };
+    const next = { state: presence.state, leftAt: presence.leftAt };
     let punch;
     let note = '';
 
     if (type === 'break_start') {
       if (status === 'off') return fail('出勤していません。勤務用のボイスチャンネルに入ると出勤になります。');
+      if (presence.state === 'other') return fail('別のボイスチャンネルにいる間は、自動で休憩になります。');
       if (status !== 'working') return fail(`今は${STATUS_LABELS[status]}です。`);
       // VC を抜けた直後（猶予中）に押したなら、抜けた時刻から休憩にする
       punch = { type, ts: presence.leftAt ?? now, source: 'button' };
       next.leftAt = null;
     } else if (type === 'break_end') {
       if (status !== 'break') return fail('休憩中ではありません。');
+      if (presence.state === 'other') {
+        return fail('別のボイスチャンネルにいる間は、勤務用のボイスチャンネルに戻ると休憩が終わります。');
+      }
       punch = { type, ts: now, source: 'button' };
-      if (!presence.inVoice) {
+      if (presence.state === 'none') {
         next.leftAt = now;
         note = `勤務用のボイスチャンネルに${Math.round(this.graceMs / 60000)}分以内に戻らないと、この時刻で退勤になります。`;
       }

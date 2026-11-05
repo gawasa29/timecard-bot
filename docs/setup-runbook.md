@@ -92,7 +92,7 @@ chmod 600 secrets.json
 | `DISCORD_PUBLIC_KEY` | 同じく **General Information** |
 | `GUILD_ID` | Discord でサーバーアイコンを右クリック → サーバー ID をコピー |
 | `USER_IDS` | 記録する人を右クリック → ユーザー ID をコピー（複数はカンマ区切り） |
-| `WORK_VOICE_CHANNEL_IDS` | 勤務用 VC を右クリック → チャンネル ID をコピー（複数はカンマ区切り） |
+| `WORK_VOICE_CHANNEL_IDS` | 勤務用 VC を右クリック → チャンネル ID をコピー（会議用があればそれも。複数はカンマ区切り） |
 | `LOG_CHANNEL_ID` | 打刻を流すテキストチャンネルを右クリック。使わないなら行ごと消す |
 
 伝えること: トークンはチャットに貼らず、ファイルに直接書いてください。特権インテント（Presence、Server Members、Message Content）はオンにしなくて大丈夫です。
@@ -187,7 +187,7 @@ npm run deploy
 
 **成功の条件:**
 
-- `db:migrate` で `0001_init.sql` と `0002_walk_to_break.sql` が `✅`、または適用済みと表示される
+- `db:migrate` で `0001_init.sql`、`0002_walk_to_break.sql`、`0003_presence_state.sql` が `✅`、または適用済みと表示される
 - `deploy` で `https://timecard-bot.<サブドメイン>.workers.dev` と `schedule: * * * * *` が表示される
 
 表示された URL を控えます。以降は `WORKER_URL` と呼びます。
@@ -304,23 +304,25 @@ fetch("https://discord.com/api/v10/applications/@me", { headers: { Authorization
 
 ```sh
 npx --no-install wrangler d1 execute timecard --remote --json --command "select substr(user_id,-4) as u, type, source, datetime(ts/1000,'unixepoch','+9 hours') as jst from punches order by ts desc limit 10"
-npx --no-install wrangler d1 execute timecard --remote --json --command "select substr(user_id,-4) as u, in_voice, datetime(left_at/1000,'unixepoch','+9 hours') as left_jst, version from presence"
+npx --no-install wrangler d1 execute timecard --remote --json --command "select substr(user_id,-4) as u, state, datetime(left_at/1000,'unixepoch','+9 hours') as left_jst, version from presence"
 ```
 
-`punches` が打刻、`presence` が VC の状態です。`left_jst` に値があれば、VC を抜けて猶予中です。
+`punches` が打刻、`presence` が VC の状態です。`state` は `work`（勤務用 VC）/ `other`（別の VC）/ `none`（VC の外）で、`left_jst` に値があれば VC を抜けて猶予中です。
 
 ### 確認の手順
 
 1. **定期実行:** デプロイのあと 10 分ほど待ち、`presence` の行数が `USER_IDS` の件数と同じになるか確かめる。ユーザーにパネルのボタンを押してもらう前に確かめる（ボタンでも行ができるため）。実績では、デプロイから最初の実行まで約 7 分かかった。
 2. **👤 出勤:** ユーザーに勤務用 VC へ入ってもらい、2 分待つ。`punches` に `in` / `voice` の行があれば成功。
 3. **👤 退勤:** ユーザーに VC を抜けてもらう。すぐには退勤にならない。5 分の猶予が過ぎたあとの確認で、`out` / `voice` の行が追加されていれば成功。
-4. **👤 表示:** ユーザーに `/today` を実行してもらい、結果が表示されることを確かめる。
+4. **☕ 休憩:** ユーザーに勤務用 VC から別の VC へ移ってもらい、2 分待つ。`punches` に `break_start` / `voice` の行が入り、勤務用 VC に戻すと `break_end` / `voice` の行が入れば成功。
+5. **👤 表示:** ユーザーに `/today` を実行してもらい、結果が表示されることを確かめる。
 
 ここまで通れば完了です。
 
 ### 判断を間違えやすい点
 
 - **VC を抜けてすぐ退勤にならないのは正常です。** 猶予の 5 分（`GRACE_MINUTES`）が過ぎるまで待ちます。退勤の時刻は、猶予が終わった時刻ではなく抜けた時刻です。
+- **勤務用 VC から別の VC に移ると休憩になります。** 勤務用 VC に戻ると終わります。会議で使う VC は `WORK_VOICE_CHANNEL_IDS` に追加してください。別の VC にいる間は、パネルの休憩ボタンは使えません。
 - **`/today` は VC の状態を確かめません。** 打刻を表示するだけです。パネルのボタンは、押した時点で VC の状態も確かめます。そのため、ボタンのあとに増えた打刻は、定期実行が動いた証拠になりません。
 - **D1 の時刻は UTC で保存されています。** `ts` はミリ秒です。上のコマンドは日本時間に変換しています。
 - **`wrangler tail` に何も出なくても、定期実行が止まったとは限りません。** 実績では 90 秒間に何も表示されませんでした。`presence` の変化で判断します。
@@ -337,7 +339,7 @@ npx --no-install wrangler d1 execute timecard --remote --json --command "select 
 | やりたいこと | 手順 |
 |---|---|
 | 記録する人を増やす | `secrets.json` の `USER_IDS` を直し、ステップ 3 を実行してから `npm run secrets`。デプロイは不要 |
-| 勤務用 VC を変える | `secrets.json` の `WORK_VOICE_CHANNEL_IDS` を直し、同じ手順 |
+| 勤務用 VC を変える・増やす | `secrets.json` の `WORK_VOICE_CHANNEL_IDS` を直し、同じ手順 |
 | 猶予やタイムゾーンを変える | `wrangler.toml` の `[vars]` を直して `npm run deploy` |
 | コードを変える | `npm test` のあと `npm run deploy` |
 | コマンドの定義を変える | `npm run deploy` のあと `npm run setup` |

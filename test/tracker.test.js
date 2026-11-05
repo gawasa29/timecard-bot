@@ -13,12 +13,12 @@ const B = 'user-b';
 // 1 分ごとの確認を手で進められる Tracker
 function setup({ graceMinutes = 5, maxAwayMinutes = 180 } = {}) {
   let now = fromLocal(2026, 10, 30, 9, 0);
-  const inVoice = new Set();
+  const vcState = new Map(); // userId -> 'work' | 'other' | 'none'
   const store = new Store(createD1());
   const tracker = new Tracker({ store, graceMs: graceMinutes * MIN, maxAwayMs: maxAwayMinutes * MIN });
   const users = new Set([A]);
   const tick = async () => {
-    for (const id of users) await tracker.observe(id, inVoice.has(id), now);
+    for (const id of users) await tracker.observe(id, vcState.get(id) ?? 'none', now);
   };
   return {
     tracker,
@@ -33,8 +33,9 @@ function setup({ graceMinutes = 5, maxAwayMinutes = 180 } = {}) {
       }
     },
     tick,
-    join: (id = A) => inVoice.add(id),
-    leave: (id = A) => inVoice.delete(id),
+    join: (id = A) => vcState.set(id, 'work'),
+    leave: (id = A) => vcState.set(id, 'none'),
+    other: (id = A) => vcState.set(id, 'other'),
     press: (type, id = A) => tracker.press(id, type, now),
     punches: async (id = A) => (await store.list(id)).map((p) => `${p.type}@${fmtTime(p.ts)}`),
     stats: async (id = A) =>
@@ -96,6 +97,72 @@ test('休憩中は VC を抜けても退勤にならず、戻ると休憩が終�
   t.leave();
   await t.advance(6);
   assert.deepEqual(await t.stats(), [{ work: 90, break: 31, error: false }]);
+});
+
+test('勤務用の VC から別の VC に移ると休憩になり、戻ると終わる', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.advance(60);
+  t.other();
+  await t.advance(1); // 10:01 の確認で別の VC に気づく
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01']);
+  assert.equal((await t.tracker.state(A)).status, 'break');
+  await t.advance(30);
+  t.join();
+  await t.advance(1); // 10:32
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01', 'break_end@10:32']);
+  assert.deepEqual(await t.stats(), [{ work: 61, break: 31, error: false }]);
+});
+
+test('別の VC にいる間は休憩ボタンを使えない', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.advance(60);
+  t.other();
+  await t.advance(1);
+  assert.match((await t.press('break_start')).message, /自動で休憩/);
+  assert.match((await t.press('break_end')).message, /戻ると休憩が終わります/);
+});
+
+test('猶予中に別の VC へ移ると、抜けた時刻から休憩になる', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.advance(60);
+  t.leave();
+  await t.advance(2); // 10:01 に抜けたと気づく
+  t.other();
+  await t.advance(1); // 10:03
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01']);
+});
+
+test('猶予が過ぎて退勤してから別の VC へ移っても、休憩にはならない', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.advance(60);
+  t.leave();
+  await t.advance(6); // 10:01 に抜けたと気づき、10:06 に退勤
+  t.other();
+  await t.advance(1);
+  assert.deepEqual(await t.punches(), ['in@09:00', 'out@10:01']);
+  assert.equal((await t.tracker.state(A)).status, 'off');
+});
+
+test('別の VC にいるまま 3 時間たつと、休憩開始の時刻で退勤になる', async () => {
+  const t = setup();
+  t.join();
+  await t.tick();
+  await t.advance(60);
+  t.other();
+  await t.advance(1); // 10:01 に休憩開始
+  await t.advance(180); // 13:01（ちょうど 3 時間）
+  assert.equal((await t.tracker.state(A)).status, 'break');
+  await t.advance(1); // 13:02
+  assert.deepEqual(await t.punches(), ['in@09:00', 'break_start@10:01', 'out@10:01']);
+  assert.equal((await t.tracker.state(A)).status, 'off');
 });
 
 test('休憩は VC にいたままでも記録でき、実働から引く', async () => {
